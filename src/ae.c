@@ -398,7 +398,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             retval = te->timeProc(eventLoop, id, te->clientData);
             processed++;
             if (retval != AE_NOMORE) {
-                // 后续需再次执行
+                // 需再次执行此时间任务
                 aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
             } else {
                 // 标记删除此时间时间
@@ -429,12 +429,18 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
     int processed = 0, numevents;
 
     /* Nothing to do? return ASAP */
+    // 对于既不处理时间任务也不处理文件句柄的场景下，直接返回
+    // 因为本函数核心就是处理时间任务or文件句柄任务
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
     /* Note that we want call select() even if there are no
      * file events to process as long as we want to process time
      * events, in order to sleep until the next time event is ready
      * to fire. */
+    // 如下逻辑是依据时间任务链表里的各项待触发时刻，取出距离当前时刻最近的待触发时刻，
+    // 以此差值作为后续阻塞等待文件句柄事件的最大等待时间。
+    // 如果flags是AE_DONT_WAIT，则不计算时间，直接将等待时间设为0，即不阻塞等待；
+    // 如果flags里无AE_TIME_EVENTS，表示本函数不处理时间任务，则也不计算时间，直接将等待时间设置为NULL，即一致阻塞到有可用文件句柄为止
     if (eventLoop->maxfd != -1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
@@ -477,6 +483,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires. */
+        // 返回值表示有多少个可用文件句柄，具体文件句柄+事件保存在fired数组里
         numevents = aeApiPoll(eventLoop, tvp);
 
         /* After sleep callback. */
@@ -484,9 +491,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             eventLoop->aftersleep(eventLoop);
 
         for (j = 0; j < numevents; j++) {
+            // 先取出此文件句柄对应的登记的所有信息，包含此句柄关注的所有事件
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
+            // 取出此文件句柄本次可用的事件信息
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
+            // 记录本轮执行"读回调"or"写回调"函数的次数
             int fired = 0; /* Number of events fired for current fd. */
 
             /* Normally we execute the readable event first, and the writable
@@ -500,6 +510,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * This is useful when, for instance, we want to do things
              * in the beforeSleep() hook, like fsynching a file to disk,
              * before replying to a client. */
+            /**
+             * 通常情况下，对于同一个文件句柄，在处于同时可读可写状态时，会先处理读事件再处理写事件。
+             * 这样会保证我们在尽可能快的将读事件得到的各种命令执行后，在处理本轮写事件时将结果一并下发返回给客户。
+             * 但是上述机制，又会导致 在处理写命令时，未及时将命令刷入本地磁盘就会提前将应答回复给客户的情况。
+             * 所以引入了AE_BARRIER标记，对于同一个文件句柄已执行过"读回调"函数的情况下，本轮不执行"写回调"函数。
+             */
             int invert = fe->mask & AE_BARRIER;
 
             /* Note the "fe->mask & mask & ..." code: maybe an already
@@ -534,6 +550,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         }
     }
     /* Check time events */
+    // 处理时间任务链表
     if (flags & AE_TIME_EVENTS)
         processed += processTimeEvents(eventLoop);
 
@@ -542,6 +559,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
 /* Wait for milliseconds until the given file descriptor becomes
  * writable/readable/exception */
+/**
+ * 采用poll机制阻塞式的等待此句柄可读or可写，超过一定时间无指定事件则直接返回0
+ */
 int aeWait(int fd, int mask, long long milliseconds) {
     struct pollfd pfd;
     int retmask = 0, retval;

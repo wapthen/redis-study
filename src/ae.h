@@ -41,6 +41,7 @@
 #define AE_NONE 0       /* No events registered. */
 #define AE_READABLE 1   /* Fire when descriptor is readable. */
 #define AE_WRITABLE 2   /* Fire when descriptor is writable. */
+//
 #define AE_BARRIER 4    /* With WRITABLE, never fire the event if the
                            READABLE event already fired in the same event
                            loop iteration. Useful when you want to persist
@@ -113,7 +114,9 @@ typedef struct aeEventLoop {
     int stop;
     // 保存实际IO多路复用器所需数据，例如对于epoll，此指针保存的是epoll句柄以及供保存epoll_wait返回已触发的io事件数组
     void *apidata; /* This is used for polling API specific data */
+    // 此函数每轮在epoll_wait之前调用
     aeBeforeSleepProc *beforesleep;
+    // 此函数每轮在epoll_wait返回之后 且 需要明确指明标记AE_CALL_AFTER_SLEEP 才会调用
     aeBeforeSleepProc *aftersleep;
 } aeEventLoop;
 
