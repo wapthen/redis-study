@@ -78,6 +78,7 @@ typedef struct aeFileEvent {
 /* Time event structure */
 typedef struct aeTimeEvent {
     long long id; /* time event identifier. */
+    // 定时任务的绝对时间
     long when_sec; /* seconds */
     long when_ms; /* milliseconds */
     aeTimeProc *timeProc;
@@ -89,20 +90,28 @@ typedef struct aeTimeEvent {
 
 /* A fired event */
 typedef struct aeFiredEvent {
-    int fd;
-    int mask;
+    int fd;//句柄
+    int mask;//可用事件类别合集
 } aeFiredEvent;
 
 /* State of an event based program */
 typedef struct aeEventLoop {
+    // 跟踪记录全局的已注册文件句柄最大值
     int maxfd;   /* highest file descriptor currently registered */
+    // 本结构体events数组容量
     int setsize; /* max number of file descriptors tracked */
+    // 用于记录下一个新注册时间任务的id
     long long timeEventNextId;
+    // 用来侦测服务器时间是否出现回溯,每次在processTimeEvents函数中更新为最新服务器时间
     time_t lastTime;     /* Used to detect system clock skew */
+    // 保存文件句柄的数组，里面会保存当前文件句柄所关注的事件类别
     aeFileEvent *events; /* Registered events */
+    // 可用文件句柄数组，里面会记录实际触发的事件类别
     aeFiredEvent *fired; /* Fired events */
+    // 注册的时间事件链表头，注意从业务角度来说，时间事件均为一次性事件，触发一次后根据结果决定是移除？还是再次更新注册此事件的触发时间.
     aeTimeEvent *timeEventHead;
     int stop;
+    // 保存实际IO多路复用器所需数据，例如对于epoll，此指针保存的是epoll句柄以及供保存epoll_wait返回已触发的io事件数组
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
     aeBeforeSleepProc *aftersleep;

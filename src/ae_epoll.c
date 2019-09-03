@@ -30,12 +30,21 @@
 
 
 #include <sys/epoll.h>
+#include "ae.h"
 
+/**
+ * epoll机制所用的相关数据结构体
+ */
 typedef struct aeApiState {
-    int epfd;
-    struct epoll_event *events;
+    int epfd;//epoll句柄
+    struct epoll_event *events;//供保存epoll_wait返回已触发事件的数组，预分配数组大小应为eventLoop->setsize
 } aeApiState;
 
+/**
+ * 初始化创建epoll IO多路复用器
+ * 核心逻辑：创建epoll句柄，并创建setsizge容量的epoll_event数组用于接收保存内核返回的可用事件
+ * 如失败，则返回-1，否则返回0
+ */
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
@@ -55,6 +64,10 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     return 0;
 }
 
+/**
+ * 调整预分配的供保存已触发事件的epoll_event数组容量
+ * 内部采用realloc机制
+ */
 static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
     aeApiState *state = eventLoop->apidata;
 
@@ -70,8 +83,14 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(state);
 }
 
+/**
+ * 向epoll中注册新的文件句柄，此文件句柄的关注事件由mask提供
+ * 内部会确认此文件句柄是否之前已被注册过，如已注册则是修改操作，否则是新增操作
+ * 入参mask只会处理READABLE与WRITEABLE，将其转换为epoll对应的事件
+ */
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
+    // 操作关注的文件句柄所需的事件结构体，里面会填充句柄与此句柄所关注的事件
     struct epoll_event ee = {0}; /* avoid valgrind warning */
     /* If the fd was already monitored for some event, we need a MOD
      * operation. Otherwise we need an ADD operation. */
@@ -87,8 +106,13 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     return 0;
 }
 
+/**
+ * 从epoll中删除指定文件句柄的某个事件，如最后此文件句柄已无关注事件，则从epoll中删除此文件句柄
+ * 此函数只处理READABLE与WRITEABLE事件
+ */
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
     aeApiState *state = eventLoop->apidata;
+    // 操作文件句柄所用的事件结构体，里面保存此文件句柄所关注的最终事件
     struct epoll_event ee = {0}; /* avoid valgrind warning */
     int mask = eventLoop->events[fd].mask & (~delmask);
 
@@ -99,12 +123,17 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
     if (mask != AE_NONE) {
         epoll_ctl(state->epfd,EPOLL_CTL_MOD,fd,&ee);
     } else {
+        // 无关注事件，则删除此文件句柄
         /* Note, Kernel < 2.6.9 requires a non null event pointer even for
          * EPOLL_CTL_DEL. */
         epoll_ctl(state->epfd,EPOLL_CTL_DEL,fd,&ee);
     }
 }
 
+/**
+ * epoll阻塞等待事件可用函数，实际可用事件会逐个保存在eventLoop的fired数组中，从下标0开始，函数返回可用事件个数
+ * 如果入参tvp为NULL，则一直阻塞到事件可用为止；否则至多等待tvp时间
+ */
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;

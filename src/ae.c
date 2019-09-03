@@ -59,7 +59,11 @@
         #endif
     #endif
 #endif
-
+/**
+ * 创建事件处理器
+ * 内部会调用实际的IO复用器，linux使用epoll
+ * 如无内存，则返回NULL
+ */
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
@@ -76,9 +80,11 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
+    // 初始化IO复用器
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
+    // 因为内存分配使用的是malloc家族，堆内存未初始化，此处对文件句柄事件数组里的mask初始化为NONE
     for (i = 0; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
     return eventLoop;
@@ -104,6 +110,11 @@ int aeGetSetSize(aeEventLoop *eventLoop) {
  * performed at all.
  *
  * Otherwise AE_OK is returned and the operation is successful. */
+/**
+ * 重新调整eventLoop内的可注册文件容量限值：扩张or缩小
+ * 内部使用realloc函数进行内存调整
+ * 并处理扩张场景下的新曾events里的mask为初始值
+ */
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
     int i;
 
@@ -122,6 +133,9 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
     return AE_OK;
 }
 
+/**
+ * 释放全部的eventLoop数据，包含底层的IO多路复用器数据
+ */
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeApiFree(eventLoop);
     zfree(eventLoop->events);
@@ -132,14 +146,19 @@ void aeDeleteEventLoop(aeEventLoop *eventLoop) {
 void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
-
+/**
+ * 向eventLoop中新增指定文件句柄的新事件
+ * 如果出错，返回AE_ERR
+ */
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
+    // 新增的文件句柄如果超过文件容量，则直接返回错误
     if (fd >= eventLoop->setsize) {
         errno = ERANGE;
         return AE_ERR;
     }
+    // 先操作底层复用器，如失败直接返回，如成功则才记录并更新此文件句柄对应的关注事件以及读写函数
     aeFileEvent *fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
@@ -148,24 +167,34 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
     fe->clientData = clientData;
+    // 更新全局已注册的最大文件句柄
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
     return AE_OK;
 }
 
+/**
+ * 从eventLoop中删除指定文件句柄的某个事件
+ */
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
+    // 如果此文件句柄已超过可用文件句柄容量上限，则直接返回
     if (fd >= eventLoop->setsize) return;
     aeFileEvent *fe = &eventLoop->events[fd];
+    // 当前文件句柄已无任何关注事件则直接返回
     if (fe->mask == AE_NONE) return;
 
+    // 如果当前撤销的事件是写事件，则将BARRIER壁障事件也一并撤销
     /* We want to always remove AE_BARRIER if set when AE_WRITABLE
      * is removed. */
     if (mask & AE_WRITABLE) mask |= AE_BARRIER;
 
+    // 先操作底层多路复用器，再记录并更新eventLoop中的关注事件
     aeApiDelEvent(eventLoop, fd, mask);
     fe->mask = fe->mask & (~mask);
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
+        // 对于当前文件句柄是全局最大的文件句柄而且已无任何关注事件时，则需更新全局最大的文件句柄数值
+        // 采用的机制是从最大值逐个降序遍历文件句柄，第一个不为NONE的就是目前现存的全局最大的文件句柄数值
         /* Update the max fd */
         int j;
 
@@ -175,6 +204,10 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     }
 }
 
+/**
+ *
+ * 获取指定文件句柄对应的关注事件，如越界则返回0
+ */
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     if (fd >= eventLoop->setsize) return 0;
     aeFileEvent *fe = &eventLoop->events[fd];
@@ -182,6 +215,9 @@ int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     return fe->mask;
 }
 
+/**
+ * 获取当前时间，转为秒+毫秒
+ */
 static void aeGetTime(long *seconds, long *milliseconds)
 {
     struct timeval tv;
@@ -191,6 +227,9 @@ static void aeGetTime(long *seconds, long *milliseconds)
     *milliseconds = tv.tv_usec/1000;
 }
 
+/**
+ * 基于当前时间计算milliseconds毫秒后的具体时间
+ */
 static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
     long cur_sec, cur_ms, when_sec, when_ms;
 
@@ -205,6 +244,9 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     *ms = when_ms;
 }
 
+/**
+ * 向eventLoop添加一次性的定时事件，并将此新的定时事件添加到时间事件链表的头部
+ */
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
@@ -219,6 +261,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te->timeProc = proc;
     te->finalizerProc = finalizerProc;
     te->clientData = clientData;
+    //插入链表时，需先操作新节点，再改老节点指针
     te->prev = NULL;
     te->next = eventLoop->timeEventHead;
     if (te->next)
@@ -226,7 +269,12 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     eventLoop->timeEventHead = te;
     return id;
 }
-
+/**
+ * 删除指定id对应的时间事件
+ * 机制是：LAZY懒惰机制删除
+ * 逐个遍历时间事件链表，如找到指定id，则将其id置为AE_DELETED_EVENT_ID标记移除
+ * 此事件会在processTimeEvents函数中实际物理移除
+ */
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
 {
     aeTimeEvent *te = eventLoop->timeEventHead;
@@ -251,6 +299,9 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  */
+/**
+ * 从eventLoop的时间事件链表中遍历找到触发时刻最小值
+ */
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
     aeTimeEvent *te = eventLoop->timeEventHead;
@@ -266,7 +317,16 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
     return nearest;
 }
 
+
 /* Process time events */
+/**
+ * 处理时间事件总入口
+ * 机制：逐个遍历时间事件链表里的每个节点，如果发现当前节点的触发时刻已超过当前服务器时刻 且 当前时间事件是有效事件，则执行事件函数
+ * 是否有效时间事件依据是：id是否为AE_DELETED_EVENT_ID
+ * 此函数处理了服务器时刻回溯的场景，即服务器时刻回调到历史时间: 判断依据是lastTime与当前时刻
+ * 对于此场景，直接将所有的时间事件的触发时间秒级设置为0，让其立刻执行。即：提早执行所有有效时间事件
+ * 返回实际执行了的时间事件个数
+ */
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te;
@@ -281,6 +341,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
      * events to be processed ASAP when this happens: the idea is that
      * processing events earlier is less dangerous than delaying them
      * indefinitely, and practice suggests it is. */
+    // 侦测时间回溯的情况，如是，则通过修改所有时间任务的触发时刻来提前执行所有的时间任务
     if (now < eventLoop->lastTime) {
         te = eventLoop->timeEventHead;
         while(te) {
@@ -288,6 +349,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             te = te->next;
         }
     }
+    // 记录当前最新的服务器时间
     eventLoop->lastTime = now;
 
     te = eventLoop->timeEventHead;
@@ -296,6 +358,9 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         long now_sec, now_ms;
         long long id;
 
+        /**
+         * 对于当前节点是标记移除的场景，进行实际物理移除此节点
+         */
         /* Remove events scheduled for deletion. */
         if (te->id == AE_DELETED_EVENT_ID) {
             aeTimeEvent *next = te->next;
@@ -317,6 +382,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
          * add new timers on the head, however if we change the implementation
          * detail, this check may be useful again: we keep it here for future
          * defense. */
+        // 目前此处逻辑无意义，因为已通过AE_DELETED_EVENT_ID标记处理无用事件
         if (te->id > maxId) {
             te = te->next;
             continue;
@@ -328,11 +394,14 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             int retval;
 
             id = te->id;
+            // 返回的数据-1表示无需再次执行；否则表示在多少毫秒后再次执行
             retval = te->timeProc(eventLoop, id, te->clientData);
             processed++;
             if (retval != AE_NOMORE) {
+                // 后续需再次执行
                 aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
             } else {
+                // 标记删除此时间时间
                 te->id = AE_DELETED_EVENT_ID;
             }
         }
@@ -493,6 +562,9 @@ int aeWait(int fd, int mask, long long milliseconds) {
     }
 }
 
+/**
+ * redis进程的主循环
+ */
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     while (!eventLoop->stop) {

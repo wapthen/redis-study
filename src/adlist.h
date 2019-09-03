@@ -34,23 +34,23 @@
 /* Node, List, and Iterator are the only data structures used currently. */
 
 typedef struct listNode {
-    struct listNode *prev;
-    struct listNode *next;
-    void *value;
+    struct listNode *prev;//前向指针
+    struct listNode *next;//后向指针
+    void *value;//实际的数据指针
 } listNode;
 
 typedef struct listIter {
-    listNode *next;
-    int direction;
+    listNode *next;//保存迭代器下一个元素的指针
+    int direction;//方向，取值范围:0从头到尾；1从尾到头
 } listIter;
 
 typedef struct list {
-    listNode *head;
-    listNode *tail;
-    void *(*dup)(void *ptr);
-    void (*free)(void *ptr);
-    int (*match)(void *ptr, void *key);
-    unsigned long len;
+    listNode *head;//指向链表的第一个节点
+    listNode *tail;//指向链表的最后一个节点
+    void *(*dup)(void *ptr);//保存用于复制value使用的函数指针，适用于需要深度拷贝的场景
+    void (*free)(void *ptr);//保存用于释放value使用的函数指针
+    int (*match)(void *ptr, void *key);//判断value数据释放相同的函数指针，如为NULL，则直接比较value指针的大小是否相同
+    unsigned long len;//链表元素个数
 } list;
 
 /* Functions implemented as macros */
