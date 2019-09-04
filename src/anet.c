@@ -58,6 +58,9 @@ static void anetSetError(char *err, const char *fmt, ...)
     va_end(ap);
 }
 
+/**
+ * 设置文件句柄阻塞or非阻塞
+ */
 int anetSetBlock(char *err, int fd, int non_block) {
     int flags;
 
@@ -92,6 +95,9 @@ int anetBlock(char *err, int fd) {
 /* Set TCP keep alive option to detect dead peers. The interval option
  * is only used for Linux as we are using Linux-specific APIs to set
  * the probe send time, interval, and count. */
+/**
+ * 设置文件句柄的keep-alive参数，用于侦测tcp死链
+ */
 int anetKeepAlive(char *err, int fd, int interval)
 {
     int val = 1;
@@ -138,6 +144,15 @@ int anetKeepAlive(char *err, int fd, int interval)
     return ANET_OK;
 }
 
+/**
+ * 设置tcp NODELAY属性，设置为1的时候对小包友好，可以及时发送TCP数据包而无论包大小，但是可能会引起网络拥塞
+ * Nagle's algorithm, named after its creator John Nagle,
+ * is one mechanism for improving TCP efficiency by reducing the number of small packets sent over the network.
+ * The goal was to prevent a node from transmitting many small packets
+ * if the application delivers data to the socket rather slowly.
+ * If a process is causing many small packets to be transmitted, it may be creating undue network congestion.
+ * This is especially true if the payload of a packet is smaller than the TCP header data.
+ */
 static int anetSetTcpNoDelay(char *err, int fd, int val)
 {
     if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
@@ -181,6 +196,13 @@ int anetTcpKeepAlive(char *err, int fd)
 
 /* Set the socket send timeout (SO_SNDTIMEO socket option) to the specified
  * number of milliseconds, or disable it if the 'ms' argument is zero. */
+/**
+ * 设置阻塞式的socket句柄对应的发送超时数值
+ * SO_SNDTIMEO is useful for a blocking socket. If the socket's buffer is full, send() can block,
+ * in which case it may be useful to use the SO_SNDTIMEO socket option.
+ * For non-blocking sockets, if the socket's buffer is full, send will fail immediately,
+ * so there is no point in setting SO_SNDTIMEO with a non-blocking socket.
+ */
 int anetSendTimeout(char *err, int fd, long long ms) {
     struct timeval tv;
 
@@ -200,6 +222,10 @@ int anetSendTimeout(char *err, int fd, long long ms) {
  * If flags is set to ANET_IP_ONLY the function only resolves hostnames
  * that are actually already IPv4 or IPv6 addresses. This turns the function
  * into a validating / normalizing function. */
+/**
+ * 将本机地址转为名称，可以处理ipv4，ipv6
+ * 如果flags设置有ANET_IP_ONLY则仅仅解析数字型地址
+ */
 int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
                        int flags)
 {
@@ -207,6 +233,10 @@ int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
     int rv;
 
     memset(&hints,0,sizeof(hints));
+    /**
+     * if hints.ai_flags contains the AI_NUMERICHOST flag then node must be a numerical network address.
+     * The AI_NUMERICHOST flag suppresses any potentially lengthy network host address lookups
+     */
     if (flags & ANET_IP_ONLY) hints.ai_flags = AI_NUMERICHOST;
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;  /* specify socktype to avoid dups */
@@ -235,6 +265,10 @@ int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
     return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_IP_ONLY);
 }
 
+/**
+ * 此socket句柄可以绑定处于TIME_WAIT的端口地址
+ * Specifies that the rules used in validating addresses supplied to bind() should allow reuse of local addresses.
+ */
 static int anetSetReuseAddr(char *err, int fd) {
     int yes = 1;
     /* Make sure connection-intensive things like the redis benchmark
@@ -246,6 +280,9 @@ static int anetSetReuseAddr(char *err, int fd) {
     return ANET_OK;
 }
 
+/**
+ * 创建tcp or local域的句柄，并设置此句柄为reuseaddr属性
+ */
 static int anetCreateSocket(char *err, int domain) {
     int s;
     if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
@@ -265,6 +302,10 @@ static int anetCreateSocket(char *err, int domain) {
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
 #define ANET_CONNECT_BE_BINDING 2 /* Best effort binding. */
+/**
+ * 构造socket句柄并完成connect对端地址
+ * addr + port 是对端地址，source_addr为本地地址
+ */
 static int anetTcpGenericConnect(char *err, char *addr, int port,
                                  char *source_addr, int flags)
 {
@@ -369,6 +410,9 @@ int anetTcpNonBlockBestEffortBindConnect(char *err, char *addr, int port,
             ANET_CONNECT_NONBLOCK|ANET_CONNECT_BE_BINDING);
 }
 
+/**
+ * 构造本地域句柄,并完成connect链接
+ */
 int anetUnixGenericConnect(char *err, char *path, int flags)
 {
     int s;
@@ -409,6 +453,9 @@ int anetUnixNonBlockConnect(char *err, char *path)
 
 /* Like read(2) but make sure 'count' is read before to return
  * (unless error or EOF condition is encountered) */
+/**
+ * 尽可能一次性的从指定的fd读取count字节的数据到buf中，除非遇到EOF或者错误
+ */
 int anetRead(int fd, char *buf, int count)
 {
     ssize_t nread, totlen = 0;
@@ -424,6 +471,9 @@ int anetRead(int fd, char *buf, int count)
 
 /* Like write(2) but make sure 'count' is written before to return
  * (unless error is encountered) */
+/**
+ * 尽可能一次性向指定fd中写入count字节的数据
+ */
 int anetWrite(int fd, char *buf, int count)
 {
     ssize_t nwritten, totlen = 0;
@@ -436,7 +486,9 @@ int anetWrite(int fd, char *buf, int count)
     }
     return totlen;
 }
-
+/**
+ * 完成bind与listen功能
+ */
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog) {
     if (bind(s,sa,len) == -1) {
         anetSetError(err, "bind: %s", strerror(errno));
@@ -461,7 +513,9 @@ static int anetV6Only(char *err, int s) {
     }
     return ANET_OK;
 }
-
+/**
+ * server段接口，完成socket句柄创建，设置reuseaddr属性，并bind与listen功能
+ */
 static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
 {
     int s = -1, rv;
@@ -509,7 +563,14 @@ int anetTcp6Server(char *err, int port, char *bindaddr, int backlog)
 {
     return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog);
 }
-
+/**
+ * server端接口，创建本地域句柄并完成bind与listen工作
+ * @param err
+ * @param path
+ * @param perm
+ * @param backlog
+ * @return
+ */
 int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
 {
     int s;
@@ -527,7 +588,15 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
         chmod(sa.sun_path, perm);
     return s;
 }
-
+/**
+ * socket句柄s用于accept，此函数统一处理信号中断,确保accept重调用
+ * 原始的accept函数如下说明：
+ * If no pending connections are present on the queue, and the socket is
+ *      not marked as nonblocking, accept() blocks the caller until a
+ *     connection is present.  If the socket is marked nonblocking and no
+ *      pending connections are present on the queue, accept() fails with the
+ *      error EAGAIN or EWOULDBLOCK.
+ */
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     while(1) {
@@ -544,7 +613,9 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     }
     return fd;
 }
-
+/**
+ * 完成TCP的新链接accept获取，并将新连接的对方地址转为点分式文本型数据保存到ip与port中
+ */
 int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
@@ -564,6 +635,9 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     return fd;
 }
 
+/**
+ * 完成本地域新链接accept获取
+ */
 int anetUnixAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;
@@ -573,7 +647,9 @@ int anetUnixAccept(char *err, int s) {
 
     return fd;
 }
-
+/**
+ * 获取指定文件句柄对应的远端地址，并将其转为点分式文本型数据保存到ip与port中
+ */
 int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
@@ -613,12 +689,18 @@ error:
 /* Format an IP,port pair into something easy to parse. If IP is IPv6
  * (matches for ":"), the ip is surrounded by []. IP and port are just
  * separated by colons. This the standard to display addresses within Redis. */
+/**
+ * 将点分式的ip与port拼装一起中间以:分割，对于ipv6的场景，则以[]包裹ip地址之后拼接：port
+ */
 int anetFormatAddr(char *buf, size_t buf_len, char *ip, int port) {
     return snprintf(buf,buf_len, strchr(ip,':') ?
            "[%s]:%d" : "%s:%d", ip, port);
 }
 
 /* Like anetFormatAddr() but extract ip and port from the socket's peer. */
+/**
+ * 根据socket文件句柄获取对端地址并将其转为ip：port点分式文本数据
+ */
 int anetFormatPeer(int fd, char *buf, size_t buf_len) {
     char ip[INET6_ADDRSTRLEN];
     int port;
@@ -626,7 +708,9 @@ int anetFormatPeer(int fd, char *buf, size_t buf_len) {
     anetPeerToString(fd,ip,sizeof(ip),&port);
     return anetFormatAddr(buf, buf_len, ip, port);
 }
-
+/**
+ * 根据socket文件句柄获取本地地址
+ */
 int anetSockName(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
@@ -648,7 +732,9 @@ int anetSockName(int fd, char *ip, size_t ip_len, int *port) {
     }
     return 0;
 }
-
+/**
+ * 根据socket文件句柄获取本地地址，并将其转为点分式的ip：port文本数据
+ */
 int anetFormatSock(int fd, char *fmt, size_t fmt_len) {
     char ip[INET6_ADDRSTRLEN];
     int port;
