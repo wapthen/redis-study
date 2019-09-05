@@ -58,7 +58,12 @@ void aofClosePipes(void);
  * ------------------------------------------------------------------------- */
 
 #define AOF_RW_BUF_BLOCK_SIZE (1024*1024*10)    /* 10 MB per block */
-
+/**
+ * 在有后台子进程进行重写aof文件时，主进程使用如下结构体缓存主进程接收客户端的命令，
+ * 以备在子进程rewrite完毕后，将缓存中的命令追加到新aof文件的尾部。
+ * 即：此结构体是缓存fork之后的来自客户的新命令
+ * 整体机制采用块链的方式，主体采用list，每个节点为aofrwblock结构体，此aofrwblock里是一块连续的内存，同时记录着已用字节数，空闲字节数
+ */
 typedef struct aofrwblock {
     unsigned long used, free;
     char buf[AOF_RW_BUF_BLOCK_SIZE];
@@ -67,6 +72,9 @@ typedef struct aofrwblock {
 /* This function free the old AOF rewrite buffer if needed, and initialize
  * a fresh new one. It tests for server.aof_rewrite_buf_blocks equal to NULL
  * so can be used for the first initialization as well. */
+/**
+ * 重置整个aof块链，如有块链则先整体释放，重新创建一个空的list
+ */
 void aofRewriteBufferReset(void) {
     if (server.aof_rewrite_buf_blocks)
         listRelease(server.aof_rewrite_buf_blocks);
@@ -76,6 +84,10 @@ void aofRewriteBufferReset(void) {
 }
 
 /* Return the current size of the AOF rewrite buffer. */
+/**
+ * 计算整个块链目前已用字节数
+ * 采用从头遍历整个块链，对每个块链中的已用字节数字段进行加和
+ */
 unsigned long aofRewriteBufferSize(void) {
     listNode *ln;
     listIter li;
@@ -92,6 +104,11 @@ unsigned long aofRewriteBufferSize(void) {
 /* Event handler used to send data to the child process doing the AOF
  * rewrite. We send pieces of our AOF differences buffer so that the final
  * write when the child finishes the rewrite will be small. */
+/**
+ * 用于主进程将块链中累积的命令数据逐一的发送给子进程
+ * 本函数会一边发送数据一边删除已发送的块节点，如正常结束，则最后块链list无任何节点数据。
+ * 主子进程直接通过管道方式进行数据交互
+ */
 void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     listNode *ln;
     aofrwblock *block;
@@ -102,27 +119,37 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
 
     while(1) {
+        // 从头取出块链中的节点，因为发送全一个节点则删除一个节点，所以每次只需取出头节点即可。
         ln = listFirst(server.aof_rewrite_buf_blocks);
         block = ln ? ln->value : NULL;
         if (server.aof_stop_sending_diff || !block) {
+            // 中途中止发送数据 或者 遍历完全部的块链数据时，从事件分配器中将aof_pipe_write_data_to_child删掉写事件 并 返回
             aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
                               AE_WRITABLE);
             return;
         }
         if (block->used > 0) {
+            // 当前块节点有已用数据，则调用write函数将此数据尽可能一次性发送给子进程
             nwritten = write(server.aof_pipe_write_data_to_child,
                              block->buf,block->used);
+            // 写数据异常则直接返回
             if (nwritten <= 0) return;
+            // 将本块内未发送的数据前移至本块最开始的地址，并修改块链节点的相关字段，待下一轮继续发送
             memmove(block->buf,block->buf+nwritten,block->used-nwritten);
             block->used -= nwritten;
             block->free += nwritten;
         }
+        // 当发现本块已经全部发送完毕，则直接从链表中删除本块
         if (block->used == 0) listDelNode(server.aof_rewrite_buf_blocks,ln);
     }
 }
 
 /* Append data to the AOF rewrite buffer, allocating new blocks if needed. */
+/**
+ * 将新数据添加到块链的尾部
+ */
 void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
+    // 取出块链的最后一个节点
     listNode *ln = listLast(server.aof_rewrite_buf_blocks);
     aofrwblock *block = ln ? ln->value : NULL;
 
@@ -130,8 +157,10 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
         /* If we already got at least an allocated block, try appending
          * at least some piece into it. */
         if (block) {
+            // 对于当前块节点，尝试将新数据写入此块中空闲区域，并更新块字段+剩余待写字节数
             unsigned long thislen = (block->free < len) ? block->free : len;
             if (thislen) {  /* The current block is not already full. */
+                // 表示当前块还有空闲区域可写新数据
                 memcpy(block->buf+block->used, s, thislen);
                 block->used += thislen;
                 block->free -= thislen;
@@ -141,8 +170,10 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
         }
 
         if (len) { /* First block to allocate, or need another block. */
+            // 对于依旧有待写入的数据，则需要分配新的块节点以用于容纳新数据
             int numblocks;
 
+            // 分配新节点，并添加到块链的尾部
             block = zmalloc(sizeof(*block));
             block->free = AOF_RW_BUF_BLOCK_SIZE;
             block->used = 0;
@@ -150,6 +181,8 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 
             /* Log every time we cross more 10 or 100 blocks, respectively
              * as a notice or warning. */
+            // 统计一下目前块链已用的块数，并适时的打印日志记录所用内存大小
+            // 打印频率是每满10块打印一次日志，且每100块将日志级别提升至warn警告级别
             numblocks = listLength(server.aof_rewrite_buf_blocks);
             if (((numblocks+1) % 10) == 0) {
                 int level = ((numblocks+1) % 100) == 0 ? LL_WARNING :
@@ -160,9 +193,12 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
         }
     }
 
+    //至此，新数据已加入到块链中，将通知子进程的文件句柄注册到事件分配器中，即及时的将数据发送给子进程
     /* Install a file event to send data to the rewrite child if there is
      * not one already. */
+    // 对于事件分配器中已有 此文件句柄，则无需多次注册
     if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {
+        // 注册事件分配器
         aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child,
             AE_WRITABLE, aofChildWriteDiffData, NULL);
     }
@@ -171,6 +207,10 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 /* Write the buffer (possibly composed of multiple blocks) into the specified
  * fd. If a short write or any other error happens -1 is returned,
  * otherwise the number of bytes written is returned. */
+/**
+ * 将块链中每个节点的数据写入到指定的文件句柄中，如果出现错误or short写则直接返回-1
+ * 注意：此函数不会对块链做任何删除改动
+ */
 ssize_t aofRewriteBufferWrite(int fd) {
     listNode *ln;
     listIter li;
@@ -199,12 +239,18 @@ ssize_t aofRewriteBufferWrite(int fd) {
 
 /* Return true if an AOf fsync is currently already in progress in a
  * BIO thread. */
+/**
+ * 查看当前是否有fsync线程在后台执行，如有无则返回0
+ */
 int aofFsyncInProgress(void) {
     return bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
 }
 
 /* Starts a background task that performs fsync() against the specified
  * file descriptor (the one of the AOF file) in another thread. */
+/**
+ * 将待执行fsync的文件句柄添加到后台专门执行磁盘同步的线程任务队列中
+ */
 void aof_background_fsync(int fd) {
     bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
 }
