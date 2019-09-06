@@ -256,17 +256,26 @@ void aof_background_fsync(int fd) {
 }
 
 /* Kills an AOFRW child process if exists */
+/**
+ * 如果有后台执行rewrite aof的子进程，则安全的将其杀掉
+ * 此函数是阻塞等待指定的子进程安全退出
+ */
 static void killAppendOnlyChild(void) {
     int statloc;
     /* No AOFRW child? return. */
+    // 并无后台执行rewrite aof的子进程
     if (server.aof_child_pid == -1) return;
     /* Kill AOFRW child, wait for child exit. */
     serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
         (long) server.aof_child_pid);
+    // 采用发送SIGUSR1信号的方式通知子进程退出
+    // todo 此处未考虑如果通知子进程信号失败时，该如何处理
     if (kill(server.aof_child_pid,SIGUSR1) != -1) {
+        // 阻塞式的 循环执行等待子进程退出，确保等到rewrite aof的子进程退出才中止循环
         while(wait3(&statloc,0,NULL) != server.aof_child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */
+    // 做内存与临时文件的清理工作
     aofRewriteBufferReset();
     aofRemoveTempFile(server.aof_child_pid);
     server.aof_child_pid = -1;
@@ -277,6 +286,11 @@ static void killAppendOnlyChild(void) {
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
  * at runtime using the CONFIG command. */
+/**
+ * 此函数在执行用户调整aof配置由yes转为no时使用
+ * 内部先强行执行一次aof落盘动作
+ * 主要是将主进程里内存中缓存的aof-buf命令写入文件并同步落盘，之后将aof功能关闭，并安全的杀掉正在执行中的rewrite aof子进程
+ */
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
     flushAppendOnlyFile(1);
@@ -291,6 +305,9 @@ void stopAppendOnly(void) {
 
 /* Called when the user switches from "appendonly no" to "appendonly yes"
  * at runtime using the CONFIG command. */
+/**
+ * 仅在用户执行aof配置调整由no改为yes时才调用此函数
+ */
 int startAppendOnly(void) {
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
     int newfd;
@@ -298,6 +315,7 @@ int startAppendOnly(void) {
     newfd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
     serverAssert(server.aof_state == AOF_OFF);
     if (newfd == -1) {
+        // 打开aof文件句柄失败,需日志记录当前文件夹
         char *cwdp = getcwd(cwd,MAXPATHLEN);
 
         serverLog(LL_WARNING,
@@ -309,16 +327,22 @@ int startAppendOnly(void) {
         return C_ERR;
     }
     if (server.rdb_child_pid != -1) {
+        /**
+         * 当前正有一个保存RDB子进程后台保存RDB格式数据，则先记录一下rewrite aof。
+         * 等RDB子进程完毕后，再开始执行rewrite aof
+         */
         server.aof_rewrite_scheduled = 1;
         serverLog(LL_WARNING,"AOF was enabled but there is already a child process saving an RDB file on disk. An AOF background was scheduled to start when possible.");
     } else {
         /* If there is a pending AOF rewrite, we need to switch it off and
          * start a new one: the old one cannot be reused because it is not
          * accumulating the AOF buffer. */
+        // 如果此时后台有一个子进程正在进行rewrite，那么需要让其中止执行，后续需创建一个新任务
         if (server.aof_child_pid != -1) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
             killAppendOnlyChild();
         }
+        // 创建子进程，进行rewrite aof工作
         if (rewriteAppendOnlyFileBackground() == C_ERR) {
             close(newfd);
             serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
@@ -327,6 +351,7 @@ int startAppendOnly(void) {
     }
     /* We correctly switched on AOF, now wait for the rewrite to be complete
      * in order to append data on disk. */
+    // 当前经历了一次从OFF转为ON的过程，此时正在有一个子进程进行rewrite aof操作，此时需要记录下处于第一次rewrite中还未完结
     server.aof_state = AOF_WAIT_REWRITE;
     server.aof_last_fsync = server.unixtime;
     server.aof_fd = newfd;
@@ -340,6 +365,9 @@ int startAppendOnly(void) {
  * is likely to fail. However apparently in modern systems this is no longer
  * true, and in general it looks just more resilient to retry the write. If
  * there is an actual error condition we'll get it at the next try. */
+/**
+ * 封装write写数据操作，以解决短写以及中断场景下可以继续写数据，直到写失败or写成功，返回已写成功的字节数
+ */
 ssize_t aofWrite(int fd, const char *buf, size_t len) {
     ssize_t nwritten = 0, totwritten = 0;
 
@@ -380,6 +408,21 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
  * However if force is set to 1 we'll write regardless of the background
  * fsync. */
 #define AOF_WRITE_LOG_ERROR_RATE 30 /* Seconds between errors logging. */
+/**
+ * redis会确保，在回复客户应答数据之前，将此用户的已执行命令写入aof文件中。
+ * 也就是说，会将用户的操作命令落盘持久化之后，再将回复数据发送给用户。
+ * 关于落盘持久化，分为两步：写文件；刷盘。只有刷盘成功，才表示真正的持久化。
+ *
+ * 而刷盘策略分为：系统默认刷盘方式；每笔刷盘；每秒刷盘；
+ *
+ * 默认刷盘方式：直接write aof文件，不调用任何刷盘函数，交由操作系统默认刷盘；
+ * 每笔刷盘：在write aof文件后，直接调用fdatasync刷盘，此操作是阻塞式；
+ * 每秒刷盘：先确认当前是否已有后台线程在执行任何刷盘任务
+ *              如有而且延时在2s以内则提前结束，不执行写文件与落盘；
+ *              如无或者前后两次超过2s，则可以写aof文件后，之后在无任何句柄执行异步刷盘任务的情况下才会每秒提交一次刷盘异步任务供后台线程执行刷盘任务
+ *
+ * 对于force为1时，表示无论是否有后台刷盘任务，本次只要有待写数据均执行写文件操作
+ */
 void flushAppendOnlyFile(int force) {
     ssize_t nwritten;
     int sync_in_progress = 0;
@@ -391,6 +434,10 @@ void flushAppendOnlyFile(int force) {
          * called only when aof buffer is not empty, so if users
          * stop write commands before fsync called in one second,
          * the data in page cache cannot be flushed in time. */
+        /** 因为对于刷盘策略是每秒刷盘的情况下，会有延迟1秒执行刷盘的机制
+         * 所以会出现这种场景：上一次写文件成功，但是刷盘间隔未足1s，那么当时不会执行刷盘。
+         *     而在本轮时发现已无新buffer需要写入，但是刷盘间隔超过1秒，而且后台无刷盘异步任务，则直接执行刷盘任务
+         */
         if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
             server.aof_fsync_offset != server.aof_current_size &&
             server.unixtime > server.aof_last_fsync &&
@@ -463,12 +510,14 @@ void flushAppendOnlyFile(int force) {
 
         /* Log the AOF write error and record the error code. */
         if (nwritten == -1) {
+            // 对于本次写失败的情况，需要记录日志，并记录更新错误原因
             if (can_log) {
                 serverLog(LL_WARNING,"Error writing to the AOF file: %s",
                     strerror(errno));
                 server.aof_last_write_errno = errno;
             }
         } else {
+            // 对于没有一次性写完全部数据的场景，那么将已部分写入的数据truncate掉
             if (can_log) {
                 serverLog(LL_WARNING,"Short write while writing to "
                                        "the AOF file: (nwritten=%lld, "
@@ -494,6 +543,7 @@ void flushAppendOnlyFile(int force) {
 
         /* Handle the AOF write error. */
         if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
+            // 对于每笔刷盘的策略，本轮write失败 或者 没有一次性全部写aof buffer成功的场景，则直接redis进程退出
             /* We can't recover when the fsync policy is ALWAYS since the
              * reply for the client is already in the output buffers, and we
              * have the contract with the user that on acknowledged write data
@@ -509,9 +559,11 @@ void flushAppendOnlyFile(int force) {
             /* Trim the sds buffer if there was a partial write, and there
              * was no way to undo it with ftruncate(2). */
             if (nwritten > 0) {
+                // 走到这里表示之前尝试ftruncate失败，那么表示想撤销之前write的部分数据的操作失败，则只能忍受部分write的情况，并调整buffer长度
                 server.aof_current_size += nwritten;
                 sdsrange(server.aof_buf,nwritten,-1);
             }
+            // 至此，本轮write整体来说没有达到预期，则返回，等待下一轮
             return; /* We'll try again on the next call... */
         }
     } else {
@@ -523,10 +575,12 @@ void flushAppendOnlyFile(int force) {
             server.aof_last_write_status = C_OK;
         }
     }
+    // 全部aof buffer 已经写入文件中
     server.aof_current_size += nwritten;
 
     /* Re-use AOF buffer when it is small enough. The maximum comes from the
      * arena size of 4k minus some overhead (but is otherwise arbitrary). */
+    // 小于4000字节的aof buffer空间可以清空复用，否则直接释放内存再重新创建
     if ((sdslen(server.aof_buf)+sdsavail(server.aof_buf)) < 4000) {
         sdsclear(server.aof_buf);
     } else {
@@ -543,6 +597,7 @@ try_fsync:
 
     /* Perform the fsync if needed. */
     if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
+        // 每笔刷盘，阻塞式执行
         /* redis_fsync is defined as fdatasync() for Linux in order to avoid
          * flushing metadata. */
         latencyStartMonitor(latency);
@@ -553,14 +608,18 @@ try_fsync:
         server.aof_last_fsync = server.unixtime;
     } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                 server.unixtime > server.aof_last_fsync)) {
+        // 每秒刷盘下，对于已经有任何正在执行刷盘fd任务时，不提交当前fd的刷盘任务
         if (!sync_in_progress) {
             aof_background_fsync(server.aof_fd);
             server.aof_fsync_offset = server.aof_current_size;
         }
+        // todo 下面的代码是不是有问题？应该在执行提交fsync任务时才更新吧？？
         server.aof_last_fsync = server.unixtime;
     }
 }
-
+/**
+ * 将当前多个命令一次性拼接到现有的缓冲字符串中
+ */
 sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     char buf[32];
     int len, j;
@@ -1574,7 +1633,9 @@ error:
     for (j = 0; j < 6; j++) if(fds[j] != -1) close(fds[j]);
     return C_ERR;
 }
-
+/**
+ * 清除主进程与子进程之间在rewrite aof时用于数据通信的相关句柄，并撤销相关事件
+ */
 void aofClosePipes(void) {
     aeDeleteFileEvent(server.el,server.aof_pipe_read_ack_from_child,AE_READABLE);
     aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,AE_WRITABLE);

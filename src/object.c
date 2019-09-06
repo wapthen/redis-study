@@ -512,6 +512,7 @@ robj *getDecodedObject(robj *o) {
         return o;
     }
     if (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_INT) {
+        // 对于对象类型是字符串，但是存储方式是以int型保存的数据，需要反解为字符串型数据
         char buf[32];
 
         ll2string(buf,32,(long)o->ptr);

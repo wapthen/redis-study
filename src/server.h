@@ -1057,19 +1057,28 @@ struct redisServer {
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
     /* AOF persistence */
+    // aof的状态，ON表示以aof格式保存数据，OFF表示不保存aof格式数据，WAIT_REWRITE表示经历了一次从OFF到ON的转换，后台正在有一个子进程在rewrite aof执行
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
+    // 记录aof文件名
     char *aof_filename;             /* Name of the AOF file */
+    // 标记位，为1表示在有子进程在做rdb 或者 aof保存时，不执行刷盘操作
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
+    // 已执行写aof文件中的字节数
     off_t aof_current_size;         /* AOF current size. */
+    // 已执行刷盘确保可靠的保存到aof文件中的字节数
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
+    // 对于当前正有RDB子进程保存数据进行中时，记录一下rewrite aof任务，待RDB子进程完毕后再执行rewrite aof任务
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
+    // 执行rewrite aof子进程id
     pid_t aof_child_pid;            /* PID if rewriting process */
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
+    // 在开启aof落盘方式下，此buffer累积用户的命令待后续落盘持久化使用
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
+    // 记录当前以aof方式保存数据时的aof文件句柄
     int aof_fd;       /* File descriptor of currently selected AOF file */
     int aof_selected_db; /* Currently selected DB in AOF */
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
@@ -1081,6 +1090,7 @@ struct redisServer {
     int aof_rewrite_incremental_fsync;/* fsync incrementally while aof rewriting? */
     int rdb_save_incremental_fsync;   /* fsync incrementally while rdb saving? */
     int aof_last_write_status;      /* C_OK or C_ERR */
+    // 记录aof write失败时的errno
     int aof_last_write_errno;       /* Valid if aof_last_write_status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
