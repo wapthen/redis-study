@@ -59,6 +59,10 @@ void closeChildInfoPipe(void) {
 
 /* Send COW data to parent. The child should call this function after populating
  * the corresponding fields it want to sent (according to the process type). */
+/**
+ * 子进程在持久化数据后，将子进程的运行信息：使用无名管道的方式发送给父进程
+ * @param ptype
+ */
 void sendChildInfo(int ptype) {
     if (server.child_info_pipe[1] == -1) return;
     server.child_info_data.magic = CHILD_INFO_MAGIC;

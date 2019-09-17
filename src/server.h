@@ -1124,7 +1124,9 @@ struct redisServer {
     int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
     int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
     /* Pipe and data structures for child -> parent info sharing. */
+    // 用于子进程向父进程发送子进程的信息
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
+    // 汇总子进程的运行信息
     struct {
         int process_type;           /* AOF or RDB child? */
         size_t cow_size;            /* Copy on write size. */
