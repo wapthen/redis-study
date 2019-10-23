@@ -684,6 +684,12 @@ int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, cons
     return C_OK;
 }
 
+/**
+ * 把o对象解析为整型,存放在target中
+ * 如果o为null，则解析为0
+ * 如果o的编码是原始类型or压缩类型，则需要转为longlong型；
+ * 否则是以指针值代表数值。
+ */
 int getLongLongFromObject(robj *o, long long *target) {
     long long value;
 
@@ -692,8 +698,10 @@ int getLongLongFromObject(robj *o, long long *target) {
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
+            // 字符串型来表示整型
             if (string2ll(o->ptr,sdslen(o->ptr),&value) == 0) return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
+            // 以指针自身的值表示真实的数值
             value = (long)o->ptr;
         } else {
             serverPanic("Unknown string encoding");
@@ -703,6 +711,10 @@ int getLongLongFromObject(robj *o, long long *target) {
     return C_OK;
 }
 
+/**
+ * 将o对象转为long整型，如果出错，则使用msg发送给client
+ * o对象自身可能是string型，也可能是
+ */
 int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg) {
     long long value;
     if (getLongLongFromObject(o, &value) != C_OK) {

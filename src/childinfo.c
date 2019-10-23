@@ -74,6 +74,7 @@ void sendChildInfo(int ptype) {
 }
 
 /* Receive COW data from parent. */
+// 主进程读取子进程里发送的cow数据
 void receiveChildInfo(void) {
     if (server.child_info_pipe[0] == -1) return;
     ssize_t wlen = sizeof(server.child_info_data);

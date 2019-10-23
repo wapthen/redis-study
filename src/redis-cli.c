@@ -251,6 +251,9 @@ static long getLongInfoField(char *info, char *field);
 
 uint16_t crc16(const char *buf, int len);
 
+/**
+ * 获取当前服务器的时间，微秒级别
+ */
 static long long ustime(void) {
     struct timeval tv;
     long long ust;
@@ -261,6 +264,9 @@ static long long ustime(void) {
     return ust;
 }
 
+/**
+ * 获取当前服务器的时间，毫秒级别
+ */
 static long long mstime(void) {
     return ustime()/1000;
 }

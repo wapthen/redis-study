@@ -87,6 +87,8 @@ void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8
  * when we lock the nodes.conf file, we create a zero-length one for the
  * sake of locking if it does not already exist), C_ERR is returned.
  * If the configuration was loaded from the file, C_OK is returned. */
+// 从磁盘上的node.cnf加载集群配置文件
+// node-name ip:port@cluster-port slave master-name ping-sent pong-receive 
 int clusterLoadConfig(char *filename) {
     FILE *fp = fopen(filename,"r");
     struct stat sb;

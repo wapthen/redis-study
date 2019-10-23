@@ -1500,6 +1500,7 @@ void processInputBuffer(client *c) {
  * the replication forwarding to the sub-slaves, in case the client 'c'
  * is flagged as master. Usually you want to call this instead of the
  * raw processInputBuffer(). */
+// 执行client中的命令数据并将其同步给子节点
 void processInputBufferAndReplicate(client *c) {
     if (!(c->flags & CLIENT_MASTER)) {
         processInputBuffer(c);

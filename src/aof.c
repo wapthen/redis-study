@@ -1770,6 +1770,7 @@ void bgrewriteaofCommand(client *c) {
 }
 
 // 删除rewrite aof过程中临时用的文件
+// 直接unlink文件
 void aofRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 

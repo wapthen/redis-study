@@ -43,18 +43,19 @@
 
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
-
+// 字典节点
 typedef struct dictEntry {
-    void *key;
+    void *key; // 键
     union {
         void *val;
         uint64_t u64;
         int64_t s64;
         double d;
-    } v;
-    struct dictEntry *next;
+    } v; //值
+    struct dictEntry *next; // 指针指向下一个节点
 } dictEntry;
 
+// 字典节点的操作函数
 typedef struct dictType {
     uint64_t (*hashFunction)(const void *key);
     void *(*keyDup)(void *privdata, const void *key);
@@ -66,30 +67,32 @@ typedef struct dictType {
 
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
+// 字典句柄，存储当前字典链的摘要信息
 typedef struct dictht {
-    dictEntry **table;
-    unsigned long size;
-    unsigned long sizemask;
-    unsigned long used;
+    dictEntry **table;// 节点链表
+    unsigned long size;// 当前表的数组大小,即桶的个数
+    unsigned long sizemask; // 掩码：size-1
+    unsigned long used;// 已存节点数
 } dictht;
-
+// 字典
 typedef struct dict {
-    dictType *type;
-    void *privdata;
-    dictht ht[2];
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
-    unsigned long iterators; /* number of iterators currently running */
+    dictType *type;// 字典节点的操作函数方法
+    void *privdata; // 创建字典时引入的私有数据
+    dictht ht[2];// 两个字典句柄, 除非目前处于渐进式hash中，所有的节点元素都处在ht[0]中
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 */ //渐进式hash即将要处理的ht[0]桶的下标位置，-1表示当前无渐进中
+    unsigned long iterators; /* number of iterators currently running */// 当前字典有安全迭代器的个数
 } dict;
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
  * dictAdd, dictFind, and other functions against the dictionary even while
  * iterating. Otherwise it is a non safe iterator, and only dictNext()
  * should be called while iterating. */
+// 字典迭代器
 typedef struct dictIterator {
-    dict *d;
-    long index;
-    int table, safe;
-    dictEntry *entry, *nextEntry;
+    dict *d; // 迭代器操作的字典对象
+    long index; //
+    int table, safe; // 当前迭代操作的哪个表; 当前迭代器是否是安全迭代器
+    dictEntry *entry, *nextEntry; // entry:当前节点；nextEntry下一个节点指针
     /* unsafe iterator fingerprint for misuse detection. */
     long long fingerprint;
 } dictIterator;
@@ -98,6 +101,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 
 /* This is the initial size of every hash table */
+// 初始字典大小, 其值必须是2的幂
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/

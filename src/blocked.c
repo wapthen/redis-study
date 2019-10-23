@@ -75,6 +75,10 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
  * Note that if the timeout is zero (usually from the point of view of
  * commands API this means no timeout) the value stored into 'timeout'
  * is zero. */
+/**
+ * 获取指定object对象的timeout时刻，结果保存在timeout中，timeout的单位由unit决定是秒级 or 毫秒级
+ * 注意当timeout为0时，timeout也为0
+ */
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit) {
     long long tval;
 
@@ -99,6 +103,8 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 /* Block a client for the specific operation type. Once the CLIENT_BLOCKED
  * flag is set client query buffer is not longer processed, but accumulated,
  * and will be processed when the client is unblocked. */
+// 将client设置为阻塞式：不再执行query buffer中的命令，但是可以继续累积接收客户端的命令数据
+// btype 为阻塞类别
 void blockClient(client *c, int btype) {
     c->flags |= CLIENT_BLOCKED;
     c->btype = btype;
@@ -109,6 +115,7 @@ void blockClient(client *c, int btype) {
 /* This function is called in the beforeSleep() function of the event loop
  * in order to process the pending input buffer of clients that were
  * unblocked after a blocking operation. */
+// 在client由block变为unblock之后，执行client中累积的各种命令数据
 void processUnblockedClients(void) {
     listNode *ln;
     client *c;
@@ -124,6 +131,7 @@ void processUnblockedClients(void) {
          * is blocked again. Actually processInputBuffer() checks that the
          * client is not blocked before to proceed, but things may change and
          * the code is conceptually more correct this way. */
+        // 防止在执行累积命令中被再次block
         if (!(c->flags & CLIENT_BLOCKED)) {
             if (c->querybuf && sdslen(c->querybuf) > 0) {
                 processInputBufferAndReplicate(c);
@@ -148,9 +156,11 @@ void processUnblockedClients(void) {
  * 4. With this function instead we can put the client in a queue that will
  *    process it for queries ready to be executed at a safe time.
  */
+// 对于先前处于阻塞的client变为非阻塞时，将此client放入到list中，之后统一执行client中累积的命令数据
 void queueClientForReprocessing(client *c) {
     /* The client may already be into the unblocked list because of a previous
      * blocking operation, don't add back it into the list multiple times. */
+    //避免同一个client多次存入非阻塞list中
     if (!(c->flags & CLIENT_UNBLOCKED)) {
         c->flags |= CLIENT_UNBLOCKED;
         listAddNodeTail(server.unblocked_clients,c);
@@ -159,6 +169,7 @@ void queueClientForReprocessing(client *c) {
 
 /* Unblock a client calling the right function depending on the kind
  * of operation the client is blocking for. */
+// 根据原阻塞类别，将此client置为非阻塞
 void unblockClient(client *c) {
     if (c->btype == BLOCKED_LIST ||
         c->btype == BLOCKED_ZSET ||
@@ -183,6 +194,7 @@ void unblockClient(client *c) {
 /* This function gets called when a blocked client timed out in order to
  * send it a reply of some kind. After this function is called,
  * unblockClient() will be called with the same client as argument. */
+// 处理阻塞超时的client
 void replyToBlockedClientTimedOut(client *c) {
     if (c->btype == BLOCKED_LIST ||
         c->btype == BLOCKED_ZSET ||
@@ -204,6 +216,7 @@ void replyToBlockedClientTimedOut(client *c) {
  *
  * The semantics is to send an -UNBLOCKED error to the client, disconnecting
  * it at the same time. */
+// 对于处于阻塞中的client，因redis自身出现主备切换导致需要主动切断的场景
 void disconnectAllBlockedClients(void) {
     listNode *ln;
     listIter li;

@@ -400,7 +400,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define LUA_SCRIPT_TIME_LIMIT 5000 /* milliseconds */
 
 /* Units */
+// 秒级
 #define UNIT_SECONDS 0
+// 毫秒级
 #define UNIT_MILLISECONDS 1
 
 /* SHUTDOWN flags */
@@ -585,14 +587,21 @@ typedef struct RedisModuleDigest {
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
+// 原始类型的编码格式：sds字符串
 #define OBJ_ENCODING_RAW 0     /* Raw representation */
+// 数字型编码：以指针自身表示存储的数值
 #define OBJ_ENCODING_INT 1     /* Encoded as integer */
+// 字典编码
 #define OBJ_ENCODING_HT 2      /* Encoded as hash table */
 #define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
 #define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
+// 压缩链表
 #define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
+// 整型集合
 #define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
+// 跳表存储有序数据
 #define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
+// 字符串型：redisObject跟sds一同分配内存
 #define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
