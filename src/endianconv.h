@@ -36,15 +36,22 @@
 #include "config.h"
 #include <stdint.h>
 
+// 内存级颠倒字节(参数是16位)
 void memrev16(void *p);
+// 内存级颠倒字节(参数是32位)
 void memrev32(void *p);
+// 内存级颠倒字节(参数是64位)
 void memrev64(void *p);
+// 整数级颠倒字节(参数是16位)
 uint16_t intrev16(uint16_t v);
+// 整数级颠倒字节(参数是32位)
 uint32_t intrev32(uint32_t v);
+// 整数级颠倒字节(参数是64位)
 uint64_t intrev64(uint64_t v);
 
 /* variants of the function doing the actual conversion only if the target
  * host is big endian */
+// 如果宿主机是小尾架构，则如下转换函数全部空转
 #if (BYTE_ORDER == LITTLE_ENDIAN)
 #define memrev16ifbe(p) ((void)(0))
 #define memrev32ifbe(p) ((void)(0))
@@ -53,6 +60,7 @@ uint64_t intrev64(uint64_t v);
 #define intrev32ifbe(v) (v)
 #define intrev64ifbe(v) (v)
 #else
+// 如果宿主机是大尾架构，则需要按字节头尾颠倒转为小尾方式
 #define memrev16ifbe(p) memrev16(p)
 #define memrev32ifbe(p) memrev32(p)
 #define memrev64ifbe(p) memrev64(p)
@@ -67,6 +75,7 @@ uint64_t intrev64(uint64_t v);
 #define htonu64(v) (v)
 #define ntohu64(v) (v)
 #else
+// 小尾体系转为网络字节序即大尾
 #define htonu64(v) intrev64(v)
 #define ntohu64(v) intrev64(v)
 #endif

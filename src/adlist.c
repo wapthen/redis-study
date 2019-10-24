@@ -271,7 +271,7 @@ void listRewindTail(list *list, listIter *li) {
  *
  * */
 /**
- * 返回当前节点元素，并移动迭代器内部元素。
+ * 返回当前节点元素，并移动迭代器指向下一个内部元素。
  * 此函数对于删除当前节点是安全的，但是在调用此函数时不能删除非当前节点元素
  */
 listNode *listNext(listIter *iter)

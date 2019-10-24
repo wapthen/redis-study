@@ -379,19 +379,35 @@ typedef long long mstime_t; /* millisecond time type. */
 /* Redis maxmemory strategies. Instead of using just incremental number
  * for this defines, we use a set of flags so that testing for certain
  * properties common to multiple policies is faster. */
+// 基本属性
 #define MAXMEMORY_FLAG_LRU (1<<0)
 #define MAXMEMORY_FLAG_LFU (1<<1)
 #define MAXMEMORY_FLAG_ALLKEYS (1<<2)
 #define MAXMEMORY_FLAG_NO_SHARED_INTEGERS \
     (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU)
 
+// VOLATILE 代表的含义是expire属性的数据, ALLKEYS代表的含义是全部key，无论有没有expire属性
+
+// 内存淘汰策略标记，低8位预留存储基本属性
+// evict keys by trying to remove the less recently used (LRU) keys first,
+// but only among keys that have an expire set, in order to make space for the new data added.
 #define MAXMEMORY_VOLATILE_LRU ((0<<8)|MAXMEMORY_FLAG_LRU)
+// evict keys by trying to remove the less frequently used (LFU) keys first,
+// but only among keys that have an expire set, in order to make space for the new data added.
 #define MAXMEMORY_VOLATILE_LFU ((1<<8)|MAXMEMORY_FLAG_LFU)
+// evict keys with an expire set, and try to evict keys with a shorter time to live (TTL) first, in order to make space for the new data added.
 #define MAXMEMORY_VOLATILE_TTL (2<<8)
+// evict keys randomly in order to make space for the new data added, but only evict keys with an expire set.
 #define MAXMEMORY_VOLATILE_RANDOM (3<<8)
+// evict keys by trying to remove the less recently used (LRU) keys first, in order to make space for the new data added.
 #define MAXMEMORY_ALLKEYS_LRU ((4<<8)|MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_ALLKEYS)
+// evict keys by trying to remove the less frequently used (LFU) keys first, in order to make space for the new data added.
 #define MAXMEMORY_ALLKEYS_LFU ((5<<8)|MAXMEMORY_FLAG_LFU|MAXMEMORY_FLAG_ALLKEYS)
+// evict keys randomly in order to make space for the new data added.
 #define MAXMEMORY_ALLKEYS_RANDOM ((6<<8)|MAXMEMORY_FLAG_ALLKEYS)
+// return errors when the memory limit was reached
+// and the client is trying to execute commands that could result in more memory to be used
+// (most write commands, but DEL and a few more exceptions)
 #define MAXMEMORY_NO_EVICTION (7<<8)
 
 #define CONFIG_DEFAULT_MAXMEMORY_POLICY MAXMEMORY_NO_EVICTION
@@ -1015,7 +1031,7 @@ struct redisServer {
     long long stat_expiredkeys;     /* Number of expired keys */
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cylce stops.*/
-    long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
+    long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */ //实际已经驱逐数据的个数
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
     long long stat_keyspace_misses; /* Number of failed lookups of keys */
     long long stat_active_defrag_hits;      /* number of allocations moved */
@@ -1084,8 +1100,9 @@ struct redisServer {
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     // 执行rewrite aof子进程id
     pid_t aof_child_pid;            /* PID if rewriting process */
+    // 在开启aof落盘的子进程创建后，由主进程在此块链中存储用户侧的新命令，在子进程将库里的数据落完后，主进程将此块链的数据发送给子进程追加到新aof文件末尾
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
-    // 在开启aof落盘方式下，此buffer累积用户的命令待后续落盘持久化使用
+    // 在开启aof模式下，此buffer是缓存主进程里收到的还未执行也未落盘刷盘的用户新命令：redis确保用户在收到响应数据之前需先将命令落盘保存。
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
     // 记录当前以aof方式保存数据时的aof文件句柄
     int aof_fd;       /* File descriptor of currently selected AOF file */
@@ -1210,9 +1227,9 @@ struct redisServer {
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
-    unsigned long long maxmemory;   /* Max number of memory bytes to use */
+    unsigned long long maxmemory;   /* Max number of memory bytes to use */ //所允许使用的最大内存限值,默认为0表示无限制
     int maxmemory_policy;           /* Policy for key eviction */
-    int maxmemory_samples;          /* Pricision of random sampling */
+    int maxmemory_samples;          /* Pricision of random sampling */ // 从字典里采样数目
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
@@ -1240,7 +1257,7 @@ struct redisServer {
     int list_max_ziplist_size;
     int list_compress_depth;
     /* time cache */
-    time_t unixtime;    /* Unix time sampled every cron cycle. */
+    time_t unixtime;    /* Unix time sampled every cron cycle. */ // 单位是秒级
     time_t timezone;    /* Cached timezone. As set by tzset(). */
     int daylight_active;    /* Currently in daylight saving time. */
     long long mstime;   /* Like 'unixtime' but with milliseconds resolution. */
