@@ -51,19 +51,27 @@
  *
  * The parameter 'now' is the current time in milliseconds as is passed
  * to the function to avoid too many gettimeofday() syscalls. */
+// 检查主字典里的expire字典里的de节点元素 相对于now时刻是否超时，如果超时则对其进行移除操作并返回1
+// 如果没有超时，则返回0
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
+    // 参数de其实是expire字典里的元素，所以对应的value存储的是绝对的过期时刻
     long long t = dictGetSignedIntegerVal(de);
     if (now > t) {
+        // 当前时刻已经超过此元素的绝对过期时刻
         sds key = dictGetKey(de);
+        // 构建临时的字符串对象
         robj *keyobj = createStringObject(key,sdslen(key));
 
         propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
         if (server.lazyfree_lazy_expire)
+            // 异步从主字典跟expire字典里删除此key对应的节点数据
             dbAsyncDelete(db,keyobj);
         else
+            // 同步从主字典跟expire字典里删除此key对应的节点数据
             dbSyncDelete(db,keyobj);
         notifyKeyspaceEvent(NOTIFY_EXPIRED,
             "expired",keyobj,db->id);
+        //是否临时构建的字符串对象
         decrRefCount(keyobj);
         server.stat_expiredkeys++;
         return 1;
@@ -93,17 +101,20 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * If type is ACTIVE_EXPIRE_CYCLE_SLOW, that normal expire cycle is
  * executed, where the time limit is a percentage of the REDIS_HZ period
  * as specified by the ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC define. */
-
+// 提供 快/慢 两种模式的主动清除过期数据的方式，以平衡内存量跟清除耗时之间的关系
+// 当有少量过期的key时，则使用快速方式，而且在一定时间内不再执行清除任务;
+// 当有大量过期的key时，则采用慢速方式，尽可能在指定的时间内回收足够多的内存
 void activeExpireCycle(int type) {
     /* This function has some global state in order to continue the work
      * incrementally across calls. */
-    static unsigned int current_db = 0; /* Last DB tested. */
-    static int timelimit_exit = 0;      /* Time limit hit in previous call? */
-    static long long last_fast_cycle = 0; /* When last fast cycle ran. */
+    // 全局变量，用于记录上一次的回收相关信息
+    static unsigned int current_db = 0; /* Last DB tested. *///本次准备执行的db id
+    static int timelimit_exit = 0;      /* Time limit hit in previous call? *///上一次执行回收过期数据任务是否是因为时间不足导致回收任务中止：表示过期数据很多
+    static long long last_fast_cycle = 0; /* When last fast cycle ran. *///最后一次执行快速回收过期数据任务的时刻，用于快速模式下一定时间内避免重复执行
 
     int j, iteration = 0;
-    int dbs_per_call = CRON_DBS_PER_CALL;
-    long long start = ustime(), timelimit, elapsed;
+    int dbs_per_call = CRON_DBS_PER_CALL;//当前函数每次执行时最多遍历的db库数目
+    long long start = ustime(), timelimit, elapsed;//单位微秒
 
     /* When clients are paused the dataset should be static not just from the
      * POV of clients not being able to write, but also from the POV of
@@ -114,7 +125,9 @@ void activeExpireCycle(int type) {
         /* Don't start a fast cycle if the previous cycle did not exit
          * for time limit. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
+        // 上一次回收任务是正常结束，并不是因耗时过多导致中止的，表示过期数据较少，本次不予执行快速回收模式
         if (!timelimit_exit) return;
+        // 快速模式下 前后两次快速回收相隔时间太近不予执行
         if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2) return;
         last_fast_cycle = start;
     }
@@ -126,6 +139,7 @@ void activeExpireCycle(int type) {
      * 2) If last time we hit the time limit, we want to scan all DBs
      * in this iteration, as there is work to do in some DB and we don't want
      * expired keys to use memory for too much time. */
+    // 对于上一次回收是因为时间不足导致中止的场景，那么本次需要对所有库的expire字典进行排查
     if (dbs_per_call > server.dbnum || timelimit_exit)
         dbs_per_call = server.dbnum;
 
@@ -133,11 +147,13 @@ void activeExpireCycle(int type) {
      * per iteration. Since this function gets called with a frequency of
      * server.hz times per second, the following is the max amount of
      * microseconds we can spend in this function. */
-    timelimit = 1000000*ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC/server.hz/100;
+    timelimit = 1000000*ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC/server.hz/100;//本次回收的耗时阈值，单位：微秒
+    // 初始化本次标记为0
     timelimit_exit = 0;
-    if (timelimit <= 0) timelimit = 1;
+    if (timelimit <= 0) timelimit = 1; //防御，不足1微秒，以1微秒为阈值
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST)
+        // 对于快速回收模式，直接设置阈值为1000微秒=1毫秒
         timelimit = ACTIVE_EXPIRE_CYCLE_FAST_DURATION; /* in microseconds. */
 
     /* Accumulate some global stats as we expire keys, to have some idea
@@ -148,11 +164,13 @@ void activeExpireCycle(int type) {
 
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         int expired;
+        // 续着上一次db库继续执行
         redisDb *db = server.db+(current_db % server.dbnum);
 
         /* Increment the DB now so we are sure if we run out of time
          * in the current DB we'll restart from the next. This allows to
          * distribute the time evenly across DBs. */
+        // 下一次待执行的db库
         current_db++;
 
         /* Continue to expire if at the end of the cycle more than 25%
@@ -164,25 +182,30 @@ void activeExpireCycle(int type) {
             iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
+            // 获取当前库的expire字典总数
             if ((num = dictSize(db->expires)) == 0) {
                 db->avg_ttl = 0;
                 break;
             }
+            // 获取过期字典的总容量
             slots = dictSlots(db->expires);
             now = mstime();
 
             /* When there are less than 1% filled slots getting random
              * keys is expensive, so stop here waiting for better times...
              * The dictionary will be resized asap. */
+            // 如果expire字典总存储数不足expire容量的1%，则中止本次回收，因为随机取数成本太高，交由其他压缩字典容量任务来承担内存回收
             if (num && slots > DICT_HT_INITIAL_SIZE &&
                 (num*100/slots < 1)) break;
 
             /* The main collection cycle. Sample random keys among keys
              * with an expire set, checking for expired ones. */
+            // 实际过期已被移除的数据个数
             expired = 0;
             ttl_sum = 0;
             ttl_samples = 0;
 
+            // 设置本次随机取数的次数上限,以避免本轮过多耗时
             if (num > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP)
                 num = ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP;
 
@@ -190,8 +213,9 @@ void activeExpireCycle(int type) {
                 dictEntry *de;
                 long long ttl;
 
-                if ((de = dictGetRandomKey(db->expires)) == NULL) break;
+                if ((de = dictGetRandomKey(db->expires)) == NULL) break;//无过期数据，中止
                 ttl = dictGetSignedIntegerVal(de)-now;
+                // 从主字典+expire字典中检测key是否过期，如过期则移除
                 if (activeExpireCycleTryExpire(db,de,now)) expired++;
                 if (ttl > 0) {
                     /* We want the average TTL of keys yet not expired. */
@@ -226,6 +250,7 @@ void activeExpireCycle(int type) {
             }
             /* We don't repeat the cycle if there are less than 25% of keys
              * found expired in the current DB. */
+            // 如果实际移除的过期个数超过本轮1/4时，才可以继续循环，否则中止
         } while (expired > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP/4);
     }
 

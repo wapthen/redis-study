@@ -28,6 +28,11 @@ size_t lazyfreeGetPendingObjectsCount(void) {
  *
  * For lists the function returns the number of elements in the quicklist
  * representing the list. */
+// 评估释放一个对象的操作量级，并不是精确计算释放一个对象的操作次数，而是一定比例的呈现。
+// 规则是：由当初在构造此对象时分配内存的次数来决定释放此对象的操作次数。
+// 对于聚合类型的对象:例如链表，字典，只需要以节点个数代表即可
+// 对于字符串，则认为是1次;
+// 对于其他由一次性分配内存构成的类型，则返回1
 size_t lazyfreeGetFreeEffort(robj *obj) {
     if (obj->type == OBJ_LIST) {
         quicklist *ql = obj->ptr;
@@ -50,19 +55,25 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
  * If there are enough allocations to free the value object may be put into
  * a lazy free list instead of being freed synchronously. The lazy free list
  * will be reclaimed in a different bio.c thread. */
-// 异步删除指定的key-value数据
-#define LAZYFREE_THRESHOLD 64
+// 同步删除主字典+expire字典里指定的key对应节点以及节点中的key
+// 根据value的操作成本决定是同步删除value数据，还是异步删除value
+// 删除成功返回1，未执行删除动作返回0
+#define LAZYFREE_THRESHOLD 64 //异步释放阈值，释放时的操作次数超过此阈值则走异步释放，否则直接同步释放内存
 int dbAsyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
+    // expire字典里的节点里的key指向主字典里的实际内存，value存放过期时刻
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
 
     /* If the value is composed of a few allocations, to free in a lazy way
      * is actually just slower... So under a certain limit we just free
      * the object synchronously. */
+    // 从主字典里找到此key，并从字典中摘除但不释放内存，只是获取节点指针
     dictEntry *de = dictUnlink(db->dict,key->ptr);
     if (de) {
+        // 已找到key对应的节点指针
         robj *val = dictGetVal(de);
+        // 估算要释放此value对象的操作次数
         size_t free_effort = lazyfreeGetFreeEffort(val);
 
         /* If releasing the object is too much work, do it in the background
@@ -74,19 +85,26 @@ int dbAsyncDelete(redisDb *db, robj *key) {
          * through and reach the dictFreeUnlinkedEntry() call, that will be
          * equivalent to just calling decrRefCount(). */
         if (free_effort > LAZYFREE_THRESHOLD && val->refcount == 1) {
+            //超过阈值且当前value的引用计数为1：表示本次需要实际释放value值
             atomicIncr(lazyfree_objects,1);
+            // 交由后台独立的释放线程来异步释放此value对象
             bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
+            // 将value指针置为null，表示此value以被释放
             dictSetVal(db->dict,de,NULL);
         }
     }
 
+    // 节点里的key value 已经被释放了，此时准备释放节点自身的内存
     /* Release the key-val pair, or just the key if we set the val
      * field to NULL in order to lazy free it later. */
     if (de) {
+        // 主字典释放节点自身的元素
         dictFreeUnlinkedEntry(db->dict,de);
         if (server.cluster_enabled) slotToKeyDel(key);
+        // 释放内存
         return 1;
     } else {
+        //未释放内存
         return 0;
     }
 }

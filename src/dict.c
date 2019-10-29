@@ -459,7 +459,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
 
 /* Remove an element, returning DICT_OK on success or DICT_ERR if the
  * element was not found. */
-// 从字典中删除此key对应的节点，并释放节点与键值内存
+// 从字典中删除此key对应的节点，并调用析构指针用于释放键值内存
 int dictDelete(dict *ht, const void *key) {
     return dictGenericDelete(ht,key,0) ? DICT_OK : DICT_ERR;
 }
@@ -698,7 +698,7 @@ void dictReleaseIterator(dictIterator *iter)
 /* Return a random entry from the hash table. Useful to
  * implement randomized algorithms */
 // 内部有一次渐进式hash
-// 从字典中随机获取一个节点
+// 从字典中随机选择一个桶并在此桶中随机获取一个节点, 只要字典不为空，则本函数一定会返回一个随机选择的数据
 dictEntry *dictGetRandomKey(dict *d)
 {
     dictEntry *he, *orighe;

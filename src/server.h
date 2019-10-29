@@ -1028,7 +1028,7 @@ struct redisServer {
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
     long long stat_numconnections;  /* Number of connections received */
-    long long stat_expiredkeys;     /* Number of expired keys */
+    long long stat_expiredkeys;     /* Number of expired keys */ //统计因过期导致删除key的个数
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cylce stops.*/
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */ //实际已经驱逐数据的个数
@@ -1267,7 +1267,7 @@ struct redisServer {
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
     /* Cluster */
-    int cluster_enabled;      /* Is cluster enabled? */
+    int cluster_enabled;      /* Is cluster enabled? */ //释放是cluster集群模式
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
     char *cluster_configfile; /* Cluster auto-generated config file name. */
     struct clusterState *cluster;  /* State of the cluster */
@@ -1305,7 +1305,7 @@ struct redisServer {
     int lua_always_replicate_commands; /* Default replication type. */
     /* Lazy free */
     int lazyfree_lazy_eviction;
-    int lazyfree_lazy_expire;
+    int lazyfree_lazy_expire;// 非0表示开启异步释放过期数据的机制；0表示同步阻塞式的释放过期数据
     int lazyfree_lazy_server_del;
     /* Latency monitor */
     long long latency_monitor_threshold;

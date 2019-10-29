@@ -179,6 +179,7 @@ static int dictReplace(dict *ht, void *key, void *val) {
 }
 
 /* Search and remove an element */
+// 从指定的字典里删除key以及对应的value
 static int dictDelete(dict *ht, const void *key) {
     unsigned int h;
     dictEntry *de, *prevde;

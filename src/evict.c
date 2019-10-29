@@ -55,7 +55,8 @@ struct evictionPoolEntry {
     unsigned long long idle;    /* Object idle time (inverse frequency for LFU) */
     // 指针，当key值长度大于预分配的cache容量时，指向一块单独创建的新内存；当key值长度小于预分配cache容量时，则跟cached指向同一块复用内存
     sds key;                    /* Key name. */
-    //指针指向一块预分配大小的内存，方便后续复用，避免对pool里的数据进行拷贝移位操作时频繁的分配释放内存
+    // 指针指向一块预分配大小的内存，方便后续复用，避免对pool里的数据进行拷贝移位操作时频繁的分配释放内存,
+    // 同时每次对evictionPoolEntry的移位拷贝只需要操作很少的字节，无需迁移实际的数据
     sds cached;                 /* Cached SDS object for key name. */
     int dbid;                   /* Key DB number. */
 };
@@ -630,9 +631,10 @@ int freeMemoryIfNeeded(void) {
             delta = (long long) zmalloc_used_memory();
             latencyStartMonitor(eviction_latency);
             if (server.lazyfree_lazy_eviction)
-                // 开启异步删除key数据的方式
+                // 异步从字典里清除key对应的节点数据
                 dbAsyncDelete(db,keyobj);
             else
+                // 同步从主字典+expire字典里删除key对应的节点数据
                 dbSyncDelete(db,keyobj);
             latencyEndMonitor(eviction_latency);
             latencyAddSampleIfNeeded("eviction-del",eviction_latency);

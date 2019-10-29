@@ -268,7 +268,7 @@ robj *dbRandomKey(redisDb *db) {
 }
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
-// 阻塞式删除指定的key-value数据
+// 阻塞式从主字典+expire字典里删除指定的key对应的数据, 删除成功返回1，未删除返回0
 int dbSyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
