@@ -219,6 +219,7 @@ void activeExpireCycle(int type) {
                 if (activeExpireCycleTryExpire(db,de,now)) expired++;
                 if (ttl > 0) {
                     /* We want the average TTL of keys yet not expired. */
+                    // 统计未过期的存活时间
                     ttl_sum += ttl;
                     ttl_samples++;
                 }
@@ -233,6 +234,7 @@ void activeExpireCycle(int type) {
                 /* Do a simple running average with a few samples.
                  * We just use the current estimate with a weight of 2%
                  * and the previous estimate with a weight of 98%. */
+                // 汇总字典里的平均存活时间：当前采样占比2%，前值占比98%
                 if (db->avg_ttl == 0) db->avg_ttl = avg_ttl;
                 db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
             }
@@ -241,6 +243,7 @@ void activeExpireCycle(int type) {
              * expire. So after a given amount of milliseconds return to the
              * caller waiting for the other active expire cycle. */
             if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
+                // 每16次确认一下是否超时，如果已达时间上限，那么标志着过期的数据太多，待下一次的慢速清理过程需对所有的库进行清理
                 elapsed = ustime()-start;
                 if (elapsed > timelimit) {
                     timelimit_exit = 1;
@@ -264,6 +267,8 @@ void activeExpireCycle(int type) {
         current_perc = (double)total_expired/total_sampled;
     } else
         current_perc = 0;
+    // 记录字典里数据过期的评估百分比，当前值占5%，前值占95%
+    // 此值的计算方式：在删除过期数据的过程中，记录采样总次数与实际过期的个数，比值作为当轮的百分比，与历史数据进行不同权重的累积。
     server.stat_expired_stale_perc = (current_perc*0.05)+
                                      (server.stat_expired_stale_perc*0.95);
 }
@@ -303,10 +308,13 @@ void activeExpireCycle(int type) {
  * with a DB id > 63 are not expired, but a trivial fix is to set the bitmap
  * to the max 64 bit unsigned value when we know there is a key with a DB
  * ID greater than 63, and check all the configured DBs in such a case. */
+// 过期key的索引表用途，记录过期属性的key以及所在库关系，注意库id>63的不记录，也就是说不记录也就是永远不过期
 dict *slaveKeysWithExpire = NULL;
 
 /* Check the set of keys created by the master with an expire set in order to
  * check if they should be evicted. */
+// 可写式slave允许有自己独立的过期key数据，所以需要自己维持侦测
+// 字典里存储方式是：key--->所存在的库id，按位记录具体是哪个库,比如101库表示此key存在于库0 跟 库2中
 void expireSlaveKeys(void) {
     if (slaveKeysWithExpire == NULL ||
         dictSize(slaveKeysWithExpire) == 0) return;
@@ -329,6 +337,7 @@ void expireSlaveKeys(void) {
                 int expired = 0;
 
                 if (expire &&
+                    // 从指定库里确认此key是否超时，如果超时则进行移除
                     activeExpireCycleTryExpire(server.db+dbid,expire,start))
                 {
                     expired = 1;
@@ -339,6 +348,7 @@ void expireSlaveKeys(void) {
                  * At the end of the loop if the bitmap is zero, it means we
                  * no longer need to keep track of this key. */
                 if (expire && !expired) {
+                    // 如果此key当前没有过期，则需要把此库id构造一个新的bitmap，最终用于替换原有value
                     noexpire++;
                     new_dbids |= (uint64_t)1 << dbid;
                 }
@@ -350,24 +360,28 @@ void expireSlaveKeys(void) {
         /* Set the new bitmap as value of the key, in the dictionary
          * of keys with an expire set directly in the writable slave. Otherwise
          * if the bitmap is zero, we no longer need to keep track of it. */
+        //至此new_dbids里存的是有过期属性的key，但是目前还未过期，需下一轮继续检查
         if (new_dbids)
             dictSetUnsignedIntegerVal(de,new_dbids);
         else
+            //目前此key已从所有库里过期清除完毕了，则移除key不必再关注检查
             dictDelete(slaveKeysWithExpire,keyname);
 
-        /* Stop conditions: found 3 keys we cna't expire in a row or
+        /* Stop conditions: found 3 keys we can't expire in a row or
          * time limit was reached. */
         cycles++;
-        if (noexpire > 3) break;
-        if ((cycles % 64) == 0 && mstime()-start > 1) break;
-        if (dictSize(slaveKeysWithExpire) == 0) break;
+        if (noexpire > 3) break; // 截止到目前有3次出现未过期的情况则中止运行
+        if ((cycles % 64) == 0 && mstime()-start > 1) break; //运行时间>1毫秒中止运行
+        if (dictSize(slaveKeysWithExpire) == 0) break;//字典为空中止运行
     }
 }
 
 /* Track keys that received an EXPIRE or similar command in the context
  * of a writable slave. */
+// 对于可写备有过期属性的key时，单独存放一处用于自身的检查
 void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
     if (slaveKeysWithExpire == NULL) {
+        // 懒惰式创建,暂不支持超过64的库的检查跟踪
         static dictType dt = {
             dictSdsHash,                /* hash function */
             NULL,                       /* key dup */
@@ -380,22 +394,26 @@ void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
     }
     if (db->id > 63) return;
 
+    // 新增or查找key对应的字典节点
     dictEntry *de = dictAddOrFind(slaveKeysWithExpire,key->ptr);
     /* If the entry was just created, set it to a copy of the SDS string
      * representing the key: we don't want to need to take those keys
      * in sync with the main DB. The keys will be removed by expireSlaveKeys()
      * as it scans to find keys to remove. */
     if (de->key == key->ptr) {
+        // 此处表示是第一次新增，需要深度拷贝一份本地key，因为此本地key在过期时会直接删除移走
         de->key = sdsdup(key->ptr);
-        dictSetUnsignedIntegerVal(de,0);
+        dictSetUnsignedIntegerVal(de,0);//因为是第一次新增场景下，key所在的库id需初始化为0
     }
 
+    // 记录当前key对应的所在原始库id
     uint64_t dbids = dictGetUnsignedIntegerVal(de);
     dbids |= (uint64_t)1 << db->id;
     dictSetUnsignedIntegerVal(de,dbids);
 }
 
 /* Return the number of keys we are tracking. */
+// 获取处于可写备机有过期属性的key个数
 size_t getSlaveKeyWithExpireCount(void) {
     if (slaveKeysWithExpire == NULL) return 0;
     return dictSize(slaveKeysWithExpire);
@@ -409,6 +427,7 @@ size_t getSlaveKeyWithExpireCount(void) {
  * but it is not worth it since anyway race conditions using the same set
  * of key names in a wriatable slave and in its master will lead to
  * inconsistencies. This is just a best-effort thing we do. */
+// 丢弃掉所有的可写备有过期属性的key这类数据
 void flushSlaveKeysWithExpireList(void) {
     if (slaveKeysWithExpire) {
         dictRelease(slaveKeysWithExpire);

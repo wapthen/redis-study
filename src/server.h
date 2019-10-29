@@ -1029,7 +1029,7 @@ struct redisServer {
     long long stat_numcommands;     /* Number of processed commands */
     long long stat_numconnections;  /* Number of connections received */
     long long stat_expiredkeys;     /* Number of expired keys */ //统计因过期导致删除key的个数
-    double stat_expired_stale_perc; /* Percentage of keys probably expired */
+    double stat_expired_stale_perc; /* Percentage of keys probably expired */ //字典里过期数据的评估百分比
     long long stat_expired_time_cap_reached_count; /* Early expire cylce stops.*/
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */ //实际已经驱逐数据的个数
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
