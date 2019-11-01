@@ -968,7 +968,7 @@ struct redisServer {
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
-    unsigned int lruclock;      /* Clock for LRU eviction */
+    unsigned int lruclock;      /* Clock for LRU eviction */ //用于原子更新lru的锁
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
@@ -1205,7 +1205,7 @@ struct redisServer {
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
-    int repl_slave_ro;          /* Slave is read only? */
+    int repl_slave_ro;          /* Slave is read only? */ // 备模式下是否只读,1表示只读；0表示可写
     int repl_slave_ignore_maxmemory;    /* If true slaves do not evict. */
     time_t repl_down_since; /* Unix time at which link with master went down */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
@@ -1231,7 +1231,7 @@ struct redisServer {
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */ // 从字典里采样数目
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
-    int lfu_decay_time;             /* LFU counter decay factor. */
+    int lfu_decay_time;             /* LFU counter decay factor. */ // lfu计数器衰退因子
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     /* Blocked clients */
     unsigned int blocked_clients;   /* # of clients executing a blocking cmd.*/

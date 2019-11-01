@@ -52,6 +52,7 @@ void updateLFU(robj *val) {
 /* Low level key lookup API, not actually called directly from commands
  * implementations that should instead rely on lookupKeyRead(),
  * lookupKeyWrite() and lookupKeyReadWithFlags(). */
+// 从主字典里查找指定的key，且在无后台子进程进行数据落地时，根据flags参数进行数据的最新访问时间更新
 robj *lookupKey(redisDb *db, robj *key, int flags) {
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
@@ -65,8 +66,10 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             !(flags & LOOKUP_NOTOUCH))
         {
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+                // 最低频率使用
                 updateLFU(val);
             } else {
+                // 最近最少使用
                 val->lru = LRU_CLOCK();
             }
         }
@@ -97,6 +100,10 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * for read operations. Even if the key expiry is master-driven, we can
  * correctly report a key is expired on slaves even if the master is lagging
  * expiring our key via DELs in the replication link. */
+// 从字典里查找指定的key，
+// 如果key已经过期，则将其删除；
+// 此key的最后访问时间会更新到最新值
+// flags参数：NOTOUCH表示无修改最后访问时间
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
 
@@ -140,6 +147,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
 
 /* Like lookupKeyReadWithFlags(), but does not use any flag, which is the
  * common case. */
+// 带有统计信息更新的查找key，如果此key已经过期，则进行删除操作
 robj *lookupKeyRead(redisDb *db, robj *key) {
     return lookupKeyReadWithFlags(db,key,LOOKUP_NONE);
 }
@@ -149,6 +157,7 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
  *
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
+// 查找key，如果此key已经过期则进行删除操作。
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     expireIfNeeded(db,key);
     return lookupKey(db,key,LOOKUP_NONE);
@@ -1062,7 +1071,7 @@ void swapdbCommand(client *c) {
 /*-----------------------------------------------------------------------------
  * Expires API
  *----------------------------------------------------------------------------*/
-
+// 从expire字典里移除指定的key
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
@@ -1074,10 +1083,12 @@ int removeExpire(redisDb *db, robj *key) {
  * of an user calling a command 'c' is the client, otherwise 'c' is set
  * to NULL. The 'when' parameter is the absolute unix time in milliseconds
  * after which the key will no longer be considered valid. */
+// 设置一个key有过期时间，when参数是过期的绝对时刻
 void setExpire(client *c, redisDb *db, robj *key, long long when) {
     dictEntry *kde, *de;
 
     /* Reuse the sds from the main dict in the expire dict */
+    // 复用主字典里的key指针存入expire字典里的key
     kde = dictFind(db->dict,key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
     de = dictAddOrFind(db->expires,dictGetKey(kde));
@@ -1085,20 +1096,26 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;
     if (c && writable_slave && !(c->flags & CLIENT_MASTER))
+        // 当前节点是可写备机，则需将此key数据也加入到独立的备机expire字典里。
         rememberSlaveKeyWithExpire(db,key);
 }
 
 /* Return the expire time of the specified key, or -1 if no expire
  * is associated with this key (i.e. the key is non volatile) */
+// 从expire字典里找到此key对应的失效时刻
+// 返回-1表示未找到此key的失效时刻
 long long getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
     /* No expire? return ASAP */
+    // expire过期字典里是空
     if (dictSize(db->expires) == 0 ||
+    // expire过期字典里未找到此key
        (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
 
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
+    // 再次确认此key存在主字典里
     serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictGetSignedIntegerVal(de);
 }
@@ -1128,12 +1145,16 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
 }
 
 /* Check if the key is expired. */
+// 判定指定的key是否过期
 int keyIsExpired(redisDb *db, robj *key) {
+    // 获取此key的失效时刻
     mstime_t when = getExpire(db,key);
 
+    // 无此key的失效时刻
     if (when < 0) return 0; /* No expire for this key */
 
     /* Don't expire anything while loading. It will be done later. */
+    // 服务正在启动中
     if (server.loading) return 0;
 
     /* If we are in the context of a Lua script, we pretend that time is

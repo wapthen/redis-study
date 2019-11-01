@@ -446,17 +446,22 @@ void flushSlaveKeysWithExpireList(void) {
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
  * the argv[2] parameter. The basetime is always specified in milliseconds. */
+// 基础过期命令函数， 内部存储的过期时间都是毫秒级
+// basetime表示是基点，用于计算过期绝对时间 还是 相对时间
 void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
 
+    // 从用户的命令参数param转为过期时间
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
 
+    // 秒级的需要转为毫秒级
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
 
     /* No key, return zero. */
+    // 查找字典里是否有此key用于后续的写操作，如果未找到则返回null
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
@@ -469,6 +474,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
      * Instead we take the other branch of the IF statement setting an expire
      * (possibly in the past) and wait for an explicit DEL from the master. */
     if (when <= mstime() && !server.loading && !server.masterhost) {
+        // 对于执行设置过期时间的命令时就已经过期了，则需要将此key从字典里删除掉
         robj *aux;
 
         int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :
@@ -484,6 +490,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
+        // 设置一个key有过期时间，when参数是过期的绝对时刻
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
@@ -547,6 +554,7 @@ void pttlCommand(client *c) {
 }
 
 /* PERSIST key */
+// 将指定的key移除生存时间属性，变成一个持久数据
 void persistCommand(client *c) {
     if (lookupKeyWrite(c->db,c->argv[1])) {
         if (removeExpire(c->db,c->argv[1])) {

@@ -33,7 +33,7 @@
 #ifndef __SDS_H
 #define __SDS_H
 
-#define SDS_MAX_PREALLOC (1024*1024)
+#define SDS_MAX_PREALLOC (1024*1024) //1M
 const char *SDS_NOINIT;
 
 #include <sys/types.h>
@@ -44,31 +44,33 @@ typedef char *sds;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
+// 如下结构体均是内存压缩模式
+// sdshdr5已经在使用,更为精简，高5为存储的实际字符串长度。如果后续有字符串长度的扩容时，那么会由此类型升级为sdshdr8；容量缩减则类型不变
 struct __attribute__ ((__packed__)) sdshdr5 {
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr8 {
-    uint8_t len; /* used */
-    uint8_t alloc; /* excluding the header and null terminator */
+    uint8_t len; /* used *///buf中已经使用的字节数，不包含null
+    uint8_t alloc; /* excluding the header and null terminator *///实际可存数据的容量，不包含当前结构体+null
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
-    uint16_t len; /* used */
-    uint16_t alloc; /* excluding the header and null terminator */
+    uint16_t len; /* used */ //buf中已经使用的字节数，不包含null
+    uint16_t alloc; /* excluding the header and null terminator *///实际可存数据的容量，不包含当前结构体+null
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr32 {
-    uint32_t len; /* used */
-    uint32_t alloc; /* excluding the header and null terminator */
+    uint32_t len; /* used *///buf中已经使用的字节数，不包含null
+    uint32_t alloc; /* excluding the header and null terminator *///实际可存数据的容量，不包含当前结构体+null
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr64 {
-    uint64_t len; /* used */
-    uint64_t alloc; /* excluding the header and null terminator */
+    uint64_t len; /* used *///buf中已经使用的字节数，不包含null
+    uint64_t alloc; /* excluding the header and null terminator *///实际可存数据的容量，不包含当前结构体+null
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
@@ -85,7 +87,7 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
 static inline size_t sdslen(const sds s) {
-    unsigned char flags = s[-1];
+    unsigned char flags = s[-1];//定位到flag字段
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
             return SDS_TYPE_5_LEN(flags);
@@ -127,12 +129,15 @@ static inline size_t sdsavail(const sds s) {
     return 0;
 }
 
+// 设置指定sds内部存储数据的长度, 由外部确认sds的新长度完全符合当前sds的类型，避免长度不足的情况
 static inline void sdssetlen(sds s, size_t newlen) {
+    // 定位到flag字段
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
             {
                 unsigned char *fp = ((unsigned char*)s)-1;
+                // 更新类型+数据长度
                 *fp = SDS_TYPE_5 | (newlen << SDS_TYPE_BITS);
             }
             break;

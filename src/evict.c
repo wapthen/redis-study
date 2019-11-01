@@ -361,7 +361,7 @@ uint8_t LFULogIncr(uint8_t counter) {
 unsigned long LFUDecrAndReturn(robj *o) {
     // 取出当前对象的上一次访问时刻，单位分钟
     unsigned long ldt = o->lru >> 8;
-    // 取出当前对象的访问次数
+    // 取出当前对象的访问次数,最大值为255
     unsigned long counter = o->lru & 255;
     unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;
     if (num_periods)
