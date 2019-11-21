@@ -1252,13 +1252,18 @@ void zsetConvertToZiplistIfNeeded(robj *zobj, size_t maxelelen) {
  * storing it into *score. If the element does not exist C_ERR is returned
  * otherwise C_OK is returned and *score is correctly populated.
  * If 'zobj' or 'member' is NULL, C_ERR is returned. */
+// 从zset中找到此member对应的score，并将其保存在入参指定的地址中
 int zsetScore(robj *zobj, sds member, double *score) {
+    // 入参合法性判断
     if (!zobj || !member) return C_ERR;
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        // 压缩列表编码方式
         if (zzlFind(zobj->ptr, member, score) == NULL) return C_ERR;
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        // 跳表编码方式
         zset *zs = zobj->ptr;
+        // 从字典中查找是否有member数据
         dictEntry *de = dictFind(zs->dict, member);
         if (de == NULL) return C_ERR;
         *score = *(double*)dictGetVal(de);

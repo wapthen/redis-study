@@ -209,6 +209,7 @@ void clientInstallWriteHandler(client *c) {
  * Typically gets called every time a reply is built, before adding more
  * data to the clients output buffers. If the function returns C_ERR no
  * data should be appended to the output buffers. */
+// 确认当前client是否可以塞入新的应答数据
 int prepareClientToWrite(client *c) {
     /* If it's the Lua client we always return ok without installing any
      * handler since there is no socket at all. */
@@ -243,6 +244,7 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
 
     /* If there already are entries in the reply list, we cannot
      * add anything more to the static buffer. */
+    // reply list已经有数据的情况下，只能向list中新增应答信息，不能使用static buf空间，因为需要保证应答消息的顺序
     if (listLength(c->reply) > 0) return C_ERR;
 
     /* Check that the buffer has enough space available for this string. */
@@ -253,17 +255,21 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
     return C_OK;
 }
 
+// 将应答数据s，字节数为len的内容放入reply list中
 void _addReplyStringToList(client *c, const char *s, size_t len) {
+    // 对于回复后即刻断开的场景，则不添加新的回复数据
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
+    // 定位到list的最后一个节点
     listNode *ln = listLast(c->reply);
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
-    /* Note that 'tail' may be NULL even if we have a tail node, becuase when
+    /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addDeferredMultiBulkLength() is used, it sets a dummy node to NULL just
      * fo fill it later, when the size of the bulk length is set. */
 
     /* Append to tail string when possible. */
+    // 此处也处理了对于最后一个节点无可用空间的场景：依旧会顺序执行如下函数，只是不会操作任何数据
     if (tail) {
         /* Copy the part we can fit into the tail, and leave the rest for a
          * new node */
@@ -277,6 +283,7 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
     if (len) {
         /* Create a new node, make sure it is allocated to at
          * least PROTO_REPLY_CHUNK_BYTES */
+        // 每个节点至少是PROTO_REPLY_CHUNK_BYTES字节数，同时对于大于此值的内容也是一次性开辟足够空间存在一起
         size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
         tail = zmalloc(size + sizeof(clientReplyBlock));
         /* take over the allocation's internal fragmentation */

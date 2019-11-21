@@ -617,7 +617,7 @@ typedef struct RedisModuleDigest {
 #define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
 // 跳表存储有序数据
 #define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
-// 字符串型：redisObject跟sds一同分配内存
+// 字符串型：redisObject跟字符串sds一同分配内存
 #define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
@@ -755,7 +755,7 @@ typedef struct client {
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
     list *reply;            /* List of reply objects to send to the client. */
-    unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
+    unsigned long long reply_bytes; /* Tot bytes of objects in reply list. *///在reply list中保存应答消息的总字节数
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
@@ -791,8 +791,8 @@ typedef struct client {
     listNode *client_list_node; /* list node in client list */
 
     /* Response buffer */
-    int bufpos;
-    char buf[PROTO_REPLY_CHUNK_BYTES];
+    int bufpos;//指向buf中当前空闲的下标
+    char buf[PROTO_REPLY_CHUNK_BYTES]; //预分配好的空间，存储针对此client的应答数据
 } client;
 
 struct saveparam {
@@ -840,8 +840,8 @@ typedef struct zskiplist {
 } zskiplist;
 
 typedef struct zset {
-    dict *dict;
-    zskiplist *zsl;
+    dict *dict;// 字典里存放的是member-->score的映射关系
+    zskiplist *zsl;// 跳表里存放的是score-->member的映射关系
 } zset;
 
 typedef struct clientBufferLimitsConfig {
@@ -1609,6 +1609,7 @@ int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o);
+// 是字符串类别的数据
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
 /* Synchronous I/O with timeout */

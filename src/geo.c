@@ -50,6 +50,7 @@ int zslValueLteMax(double value, zrangespec *spec);
  * ==================================================================== */
 
 /* Create a new array of geoPoints. */
+// 创建一个空的geo数组容器
 geoArray *geoArrayCreate(void) {
     geoArray *ga = zmalloc(sizeof(*ga));
     /* It gets allocated on first geoArrayAppend() call. */
@@ -61,6 +62,8 @@ geoArray *geoArrayCreate(void) {
 
 /* Add a new entry and return its pointer so that the caller can populate
  * it with data. */
+// 获取ga里的一个空闲地址，如果无空闲，则对入参ga进行扩容，以腾出一个空间并返回此空闲地址指针
+// 扩容原则：初始0时扩到8；之后以2倍的节奏进行扩
 geoPoint *geoArrayAppend(geoArray *ga) {
     if (ga->used == ga->buckets) {
         ga->buckets = (ga->buckets == 0) ? 8 : ga->buckets*2;
@@ -72,6 +75,7 @@ geoPoint *geoArrayAppend(geoArray *ga) {
 }
 
 /* Destroy a geoArray created with geoArrayCreate(). */
+// 释放geoArray所有的数据,彻底释放ga数组里所有元素的内存地址包括ga自身
 void geoArrayFree(geoArray *ga) {
     size_t i;
     for (i = 0; i < ga->used; i++) sdsfree(ga->array[i].member);
@@ -90,14 +94,17 @@ int decodeGeohash(double bits, double *xy) {
 /* Input Argument Helper */
 /* Take a pointer to the latitude arg then use the next arg for longitude.
  * On parse error C_ERR is returned, otherwise C_OK. */
+// 从用户输入的参数中解析出double型数据，保存在xy中
 int extractLongLatOrReply(client *c, robj **argv, double *xy) {
     int i;
+    // 逐一翻译参数转为double数据
     for (i = 0; i < 2; i++) {
         if (getDoubleFromObjectOrReply(c, argv[i], xy + i, NULL) !=
             C_OK) {
             return C_ERR;
         }
     }
+    // 对经度纬度的边界进行判定
     if (xy[0] < GEO_LONG_MIN || xy[0] > GEO_LONG_MAX ||
         xy[1] < GEO_LAT_MIN  || xy[1] > GEO_LAT_MAX) {
         addReplySds(c, sdscatprintf(sdsempty(),
@@ -113,7 +120,9 @@ int extractLongLatOrReply(client *c, robj **argv, double *xy) {
 int longLatFromMember(robj *zobj, robj *member, double *xy) {
     double score = 0;
 
+    // 从zset中根据member数据找到对应score
     if (zsetScore(zobj, member->ptr, &score) == C_ERR) return C_ERR;
+    // 将score解析为经纬度数据
     if (!decodeGeohash(score, xy)) return C_ERR;
     return C_OK;
 }
@@ -124,14 +133,15 @@ int longLatFromMember(robj *zobj, robj *member, double *xy) {
  *
  * If the unit is not valid, an error is reported to the client, and a value
  * less than zero is returned. */
+// 解析距离单位,同一返回单位米
 double extractUnitOrReply(client *c, robj *unit) {
     char *u = unit->ptr;
 
     if (!strcmp(u, "m")) {
         return 1;
-    } else if (!strcmp(u, "km")) {
+    } else if (!strcmp(u, "km")) {//公里
         return 1000;
-    } else if (!strcmp(u, "ft")) {
+    } else if (!strcmp(u, "ft")) {//英尺
         return 0.3048;
     } else if (!strcmp(u, "mi")) {
         return 1609.34;
@@ -143,25 +153,29 @@ double extractUnitOrReply(client *c, robj *unit) {
 }
 
 /* Input Argument Helper.
- * Extract the dinstance from the specified two arguments starting at 'argv'
- * that shouldbe in the form: <number> <unit> and return the dinstance in the
+ * Extract the distance from the specified two arguments starting at 'argv'
+ * that should be in the form: <number> <unit> and return the distance in the
  * specified unit on success. *conversions is populated with the coefficient
  * to use in order to convert meters to the unit.
  *
  * On error a value less than zero is returned. */
+// 从入参的两个数据：距离 单位，结果转为米单位的数据, 并将入参单位转为米的换算系数保存到conversion中
 double extractDistanceOrReply(client *c, robj **argv,
                                      double *conversion) {
     double distance;
+    // 将第一个参数取出
     if (getDoubleFromObjectOrReply(c, argv[0], &distance,
                                    "need numeric radius") != C_OK) {
         return -1;
     }
 
+    // 合法性判定
     if (distance < 0) {
         addReplyError(c,"radius cannot be negative");
         return -1;
     }
 
+    // 将第二个参数解析转为单位为米的换算系数
     double to_meters = extractUnitOrReply(c,argv[1]);
     if (to_meters < 0) {
         return -1;
@@ -176,6 +190,7 @@ double extractDistanceOrReply(client *c, robj **argv,
  * than "5.2144992818115 meters away." We provide 4 digits after the dot
  * so that the returned value is decently accurate even when the unit is
  * the kilometer. */
+// 将double数据的小数点后4位精度4舍5入的字符串数据发送给客户
 void addReplyDoubleDistance(client *c, double d) {
     char dbuf[128];
     int dlen = snprintf(dbuf, sizeof(dbuf), "%.4f", d);
@@ -188,6 +203,7 @@ void addReplyDoubleDistance(client *c, double d) {
  * only if the point is within the search area.
  *
  * returns C_OK if the point is included, or REIDS_ERR if it is outside. */
+// 给定一个score与member，计算次score距离一组经纬度的距离是否在指定半径之内，如果在将此数据插入到geoArray集合的尾部
 int geoAppendIfWithinRadius(geoArray *ga, double lon, double lat, double radius, double score, sds member) {
     double distance, xy[2];
 

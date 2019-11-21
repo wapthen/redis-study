@@ -600,17 +600,21 @@ size_t stringObjectLen(robj *o) {
     }
 }
 
+// 将robj对象转为double型数据
 int getDoubleFromObject(const robj *o, double *target) {
     double value;
     char *eptr;
 
+    // robj为null时，则认为是0
     if (o == NULL) {
         value = 0;
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
+            // 字符串格式存储double型数据
             errno = 0;
-            value = strtod(o->ptr, &eptr);
+            value = strtod(o->ptr, &eptr);//eptr是翻译截止的指针地址
+            // 当前字符串数据非法，返回错误
             if (sdslen(o->ptr) == 0 ||
                 isspace(((const char*)o->ptr)[0]) ||
                 (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
@@ -619,6 +623,7 @@ int getDoubleFromObject(const robj *o, double *target) {
                 isnan(value))
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
+            // 直接指针存储double型数据
             value = (long)o->ptr;
         } else {
             serverPanic("Unknown string encoding");
@@ -628,6 +633,7 @@ int getDoubleFromObject(const robj *o, double *target) {
     return C_OK;
 }
 
+// 将robj类型的数据解析为double型数据保存到target中,如果异常，则将指定的msg消息作为应答消息发送给client
 int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *msg) {
     double value;
     if (getDoubleFromObject(o, &value) != C_OK) {
