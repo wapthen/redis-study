@@ -34,18 +34,21 @@
 #ifndef __LATENCY_H
 #define __LATENCY_H
 
+// 同一个事件，最多存的延迟观察数据个数
 #define LATENCY_TS_LEN 160 /* History length for every monitored event. */
 
 /* Representation of a latency sample: the sampling time and the latency
  * observed in milliseconds. */
 struct latencySample {
-    int32_t time; /* We don't use time_t to force 4 bytes usage everywhere. */
+    int32_t time; /* We don't use time_t to force 4 bytes usage everywhere. *///采样的服务器时间
     uint32_t latency; /* Latency in milliseconds. */
 };
 
 /* The latency time series for a given event. */
 struct latencyTimeSeries {
+    // 空闲空间的下标,如果idx达到上限，则重新从0开始
     int idx; /* Index of the next sample to store. */
+    // 最大延迟的数值
     uint32_t max; /* Max latency observed for this event. */
     struct latencySample samples[LATENCY_TS_LEN]; /* Latest history. */
 };
@@ -68,6 +71,7 @@ int THPIsEnabled(void);
 /* Latency monitoring macros. */
 
 /* Start monitoring an event. We just set the current time. */
+// 宏,开始计时
 #define latencyStartMonitor(var) if (server.latency_monitor_threshold) { \
     var = mstime(); \
 } else { \
@@ -76,6 +80,7 @@ int THPIsEnabled(void);
 
 /* End monitoring an event, compute the difference with the current time
  * to check the amount of time elapsed. */
+// 中止计时
 #define latencyEndMonitor(var) if (server.latency_monitor_threshold) { \
     var = mstime() - var; \
 }

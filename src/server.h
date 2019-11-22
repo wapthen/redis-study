@@ -1309,7 +1309,7 @@ struct redisServer {
     int lazyfree_lazy_server_del;
     /* Latency monitor */
     long long latency_monitor_threshold;
-    dict *latency_events;
+    dict *latency_events;//延迟事件字典
     /* Assert & bug reporting */
     const char *assert_failed;
     const char *assert_file;

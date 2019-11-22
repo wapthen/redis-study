@@ -36,6 +36,7 @@
 #include "server.h"
 
 /* Dictionary type for latency events. */
+// 字典里的key比较函数，内部是字符串方式比较
 int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
     UNUSED(privdata);
     return strcmp(key1,key2) == 0;
@@ -85,9 +86,10 @@ int THPGetAnonHugePagesSize(void) {
 /* ---------------------------- Latency API --------------------------------- */
 
 /* Latency monitor initialization. We just need to create the dictionary
- * of time series, each time serie is craeted on demand in order to avoid
+ * of time series, each time series is created on demand in order to avoid
  * having a fixed list to maintain. */
 void latencyMonitorInit(void) {
+    // 创建延迟监控字典
     server.latency_events = dictCreate(&latencyTimeSeriesDictType,NULL);
 }
 
@@ -95,17 +97,21 @@ void latencyMonitorInit(void) {
  * This function is usually called via latencyAddSampleIfNeeded(), that
  * is a macro that only adds the sample if the latency is higher than
  * server.latency_monitor_threshold. */
+// 对于超过配置文件中的阈值，则将此事件加入到延迟字典里
 void latencyAddSample(char *event, mstime_t latency) {
+    // 先找到此event在字典中的节点
     struct latencyTimeSeries *ts = dictFetchValue(server.latency_events,event);
     time_t now = time(NULL);
     int prev;
 
     /* Create the time series if it does not exist. */
+    // 此event是新事件，则创建一个新的节点并加入到字典中
     if (ts == NULL) {
         ts = zmalloc(sizeof(*ts));
         ts->idx = 0;
         ts->max = 0;
         memset(ts->samples,0,sizeof(ts->samples));
+        // 将event拷贝一份新字符串存入到字典里
         dictAdd(server.latency_events,zstrdup(event),ts);
     }
 
@@ -113,6 +119,7 @@ void latencyAddSample(char *event, mstime_t latency) {
 
     /* If the previous sample is in the same second, we update our old sample
      * if this latency is > of the old one, or just return. */
+    // 采样的服务器时间一般而言是递增的，如果相同则判定一下新的延迟时间是否大于现有值，只有大于才更新
     prev = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
     if (ts->samples[prev].time == now) {
         if (latency > ts->samples[prev].latency)
@@ -132,6 +139,7 @@ void latencyAddSample(char *event, mstime_t latency) {
  *
  * Note: this is O(N) even when event_to_reset is not NULL because makes
  * the code simpler and we have a small fixed max number of events. */
+// 从字典里将此事件删除,如果入参为null则将所有关注的事件进行清除
 int latencyResetEvent(char *event_to_reset) {
     dictIterator *di;
     dictEntry *de;
