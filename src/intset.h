@@ -32,9 +32,10 @@
 #define __INTSET_H
 #include <stdint.h>
 
+// 整体是按数字升序, 此结构体的所有数据均以小尾格式存储
 typedef struct intset {
-    uint32_t encoding;
-    uint32_t length;
+    uint32_t encoding;// 编码格式，主要是指2字节or4字节or8字节存储整型数据
+    uint32_t length;// 实际存储数据的个数
     int8_t contents[];
 } intset;
 
