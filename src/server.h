@@ -737,8 +737,11 @@ typedef struct readyList {
 /* With multiplexing we need to take per-client state.
  * Clients are taken in a linked list. */
 typedef struct client {
+    // 当前client的id
     uint64_t id;            /* Client incremental unique ID. */
+    // 当前client所用的套接字句柄
     int fd;                 /* Client socket. */
+    // 当前在用的db库
     redisDb *db;            /* Pointer to currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
     sds querybuf;           /* Buffer we use to accumulate client queries. */
@@ -755,11 +758,13 @@ typedef struct client {
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
     list *reply;            /* List of reply objects to send to the client. */
-    unsigned long long reply_bytes; /* Tot bytes of objects in reply list. *///在reply list中保存应答消息的总字节数
+    //在reply list中保存应答消息的总字节数
+    unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
+    // 响应消息reply-list内存 初次 超过软限值的时刻，需要连续超过才有效，中间有一次未超过软限值时，此值清0
     time_t obuf_soft_limit_reached_time;
     int flags;              /* Client flags: CLIENT_* macros. */
     int authenticated;      /* When requirepass is non-NULL. */
@@ -824,19 +829,19 @@ struct sharedObjectsStruct {
 
 /* ZSETs use a specialized version of Skiplists */
 typedef struct zskiplistNode {
-    sds ele;
-    double score;
-    struct zskiplistNode *backward;
+    sds ele; // member数值
+    double score; // 分数
+    struct zskiplistNode *backward;//底层链表的逆序指针
     struct zskiplistLevel {
-        struct zskiplistNode *forward;
+        struct zskiplistNode *forward;//各层的升序指针
         unsigned long span;
     } level[];
 } zskiplistNode;
 
 typedef struct zskiplist {
     struct zskiplistNode *header, *tail;
-    unsigned long length;
-    int level;
+    unsigned long length;//跳表中存储的数据个数
+    int level;// 跳表当前的有效级别
 } zskiplist;
 
 typedef struct zset {
@@ -845,9 +850,9 @@ typedef struct zset {
 } zset;
 
 typedef struct clientBufferLimitsConfig {
-    unsigned long long hard_limit_bytes;
-    unsigned long long soft_limit_bytes;
-    time_t soft_limit_seconds;
+    unsigned long long hard_limit_bytes; // 硬限值
+    unsigned long long soft_limit_bytes; // 软限值，需要结合考虑second
+    time_t soft_limit_seconds; // 超过软限值持续秒数
 } clientBufferLimitsConfig;
 
 extern clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT];
@@ -1001,7 +1006,9 @@ struct redisServer {
     int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
     int cfd_count;              /* Used slots in cfd[] */
     list *clients;              /* List of active clients */
+    // 异步释放的client链表
     list *clients_to_close;     /* Clients to close asynchronously */
+    // 记录需要将响应发送给对方的client链表
     list *clients_pending_write; /* There is to write or install handler. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client; /* Current client, only used on crash report */
@@ -1010,6 +1017,7 @@ struct redisServer {
     mstime_t clients_pause_end_time; /* Time when we undo clients_paused */
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
+    // 全局记录的下一个clientId序号
     uint64_t next_client_id;    /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
     /* RDB / AOF loading information */
@@ -1027,6 +1035,7 @@ struct redisServer {
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
+    // 链接成功未超限的client数目
     long long stat_numconnections;  /* Number of connections received */
     long long stat_expiredkeys;     /* Number of expired keys */ //统计因过期导致删除key的个数
     double stat_expired_stale_perc; /* Percentage of keys probably expired */ //字典里过期数据的评估百分比
@@ -1040,8 +1049,11 @@ struct redisServer {
     long long stat_active_defrag_key_misses;/* number of keys scanned and not moved */
     long long stat_active_defrag_scanned;   /* number of dictEntries scanned */
     size_t stat_peak_memory;        /* Max used memory record */
+    // 主进程最近一次执行fork命令耗时差
     long long stat_fork_time;       /* Time needed to perform latest fork() */
+    // 主进程fork时的速率,单位为GB/s
     double stat_fork_rate;          /* Fork rate in GB/sec. */
+    // 因超过配置上限而拒绝掉的client个数
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */
     long long stat_sync_full;       /* Number of full resyncs with slaves. */
     long long stat_sync_partial_ok; /* Number of accepted PSYNC requests. */
@@ -1080,6 +1092,7 @@ struct redisServer {
     int supervised;                 /* 1 if supervised, 0 otherwise. */
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
+    // client内存限值配置参数：client分为3类：正常，从节点，订阅pubsub类型
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
     /* AOF persistence */
     // aof的状态，ON表示以aof格式保存数据，OFF表示不保存aof格式数据，WAIT_REWRITE表示经历了一次从OFF到ON的转换，后台正在有一个子进程在rewrite aof执行
@@ -1091,6 +1104,7 @@ struct redisServer {
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
+    // aof_rewrite full, current file size
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
     // 已执行写aof文件中的字节数
     off_t aof_current_size;         /* AOF current size. */
@@ -1110,15 +1124,18 @@ struct redisServer {
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */
+    // 最近一次执行rewrite aof的开始时间
     time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
     int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
+    // 在子进程进行rewrite aof期间对于刷盘策略控制,如果开启,则每满REDIS_AUTOSYNC_BYTES 32MB进行一次刷盘
     int aof_rewrite_incremental_fsync;/* fsync incrementally while aof rewriting? */
     int rdb_save_incremental_fsync;   /* fsync incrementally while rdb saving? */
     int aof_last_write_status;      /* C_OK or C_ERR */
     // 记录aof write失败时的errno
     int aof_last_write_errno;       /* Valid if aof_last_write_status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
+    // 是否开启在rewrite aof时先以rdb的形式保存磁盘数据.
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
     /* AOF pipes used to communicate between parent and child during rewrite. */
     int aof_pipe_write_data_to_child;
@@ -1129,6 +1146,7 @@ struct redisServer {
     int aof_pipe_read_ack_from_parent;
     int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
                                       to child process. */
+    // 子进程里用于接收主进程发送的diff命令数据
     sds aof_child_diff;             /* AOF diff accumulator child side. */
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
@@ -1150,7 +1168,7 @@ struct redisServer {
     int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
     int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
     /* Pipe and data structures for child -> parent info sharing. */
-    // 用于子进程向父进程发送子进程的信息
+    // 用于子进程向父进程发送子进程的信息,主要是将子进程运行期间涉及到的cow内存大小发送给主进程
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
     // 汇总子进程的运行信息
     struct {
@@ -1698,12 +1716,16 @@ void receiveChildInfo(void);
 #define ZADD_CH (1<<16)      /* Return num of elements added or updated. */
 
 /* Struct to hold a inclusive/exclusive range spec by score comparison. */
+// score边界参数
 typedef struct {
+    // 分数边界
     double min, max;
+    // 是否含有边界数值
     int minex, maxex; /* are min or max exclusive? */
 } zrangespec;
 
 /* Struct to hold an inclusive/exclusive range spec by lexicographic comparison. */
+// 内容范围内字典序
 typedef struct {
     sds min, max;     /* May be set to shared.(minstring|maxstring) */
     int minex, maxex; /* are min or max exclusive? */

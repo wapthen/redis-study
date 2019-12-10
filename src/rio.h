@@ -70,7 +70,9 @@ struct _rio {
         /* Stdio file pointer target. */
         struct {
             FILE *fp;
+            // 自从上一次刷盘之后到现在已落盘的字节数
             off_t buffered; /* Bytes written since last fsync. */
+            // 间隔多久执行一次主动刷盘操作,如果为0表示不主动刷盘.
             off_t autosync; /* fsync after 'autosync' bytes written. */
         } file;
         /* Multiple FDs target (used to write to N sockets). */

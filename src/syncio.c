@@ -82,6 +82,7 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
  * within 'timeout' milliseconds the operation succeed and 'size' is returned.
  * Otherwise the operation fails, -1 is returned, and an unspecified amount of
  * data could be read from the file descriptor. */
+// 同步阻塞式等待至多timeout时间来读取指定句柄里的数据
 ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
     ssize_t nread, totread = 0;
     long long start = mstime();

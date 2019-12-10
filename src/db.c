@@ -386,6 +386,7 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     return removed;
 }
 
+// 设置此client的db为指定db库
 int selectDb(client *c, int id) {
     if (id < 0 || id >= server.dbnum)
         return C_ERR;

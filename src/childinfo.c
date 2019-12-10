@@ -33,10 +33,11 @@
 /* Open a child-parent channel used in order to move information about the
  * RDB / AOF saving process from the child to the parent (for instance
  * the amount of copy on write memory used) */
+// 创建一个用于向父进程发送子进程cow内存字节的数据的无名管道,且设置为非阻塞模式
 void openChildInfoPipe(void) {
     if (pipe(server.child_info_pipe) == -1) {
         /* On error our two file descriptors should be still set to -1,
-         * but we call anyway cloesChildInfoPipe() since can't hurt. */
+         * but we call anyway closeChildInfoPipe() since can't hurt. */
         closeChildInfoPipe();
     } else if (anetNonBlock(NULL,server.child_info_pipe[0]) != ANET_OK) {
         closeChildInfoPipe();

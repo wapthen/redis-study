@@ -3892,7 +3892,7 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
         allocation_size);
     serverPanic("Redis aborting for OUT OF MEMORY");
 }
-
+// 修改进程的名称,这样可以在系统命令ps时看出进程相关信息
 void redisSetProcTitle(char *title) {
 #ifdef USE_SETPROCTITLE
     char *server_mode = "";

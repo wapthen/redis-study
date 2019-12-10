@@ -106,6 +106,7 @@ void rioInitWithBuffer(rio *r, sds s) {
 /* --------------------- Stdio file pointer implementation ------------------- */
 
 /* Returns 1 or 0 for success/failure. */
+// 使用标准io库函数写磁盘文件,对于设置了autosync标记,而且之前累积的已写字节数超过此标记,则阻塞式的执行一次fflush以及datasync刷盘操作
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
     size_t retval;
 

@@ -350,6 +350,7 @@ void incrRefCount(robj *o) {
     if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
 
+// 应用计数减1，如为0则释放对象数据
 void decrRefCount(robj *o) {
     if (o->refcount == 1) {
         switch(o->type) {

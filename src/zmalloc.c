@@ -343,6 +343,7 @@ int zmalloc_get_allocator_info(size_t *allocated,
  * Example: zmalloc_get_smap_bytes_by_field("Rss:",-1);
  */
 #if defined(HAVE_PROC_SMAPS)
+// 从系统磁盘上的进程对应的smaps文件里解析出对应field的数值并进行累加
 size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
     char line[1024];
     size_t bytes = 0;

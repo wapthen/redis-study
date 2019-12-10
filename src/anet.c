@@ -102,6 +102,7 @@ int anetKeepAlive(char *err, int fd, int interval)
 {
     int val = 1;
 
+    // 开启keep-alive
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) == -1)
     {
         anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
@@ -114,6 +115,7 @@ int anetKeepAlive(char *err, int fd, int interval)
      * actually useful. */
 
     /* Send first probe after interval. */
+    // 初始间隔
     val = interval;
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &val, sizeof(val)) < 0) {
         anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
@@ -125,6 +127,7 @@ int anetKeepAlive(char *err, int fd, int interval)
      * an error (see the next setsockopt call). */
     val = interval/3;
     if (val == 0) val = 1;
+    // 内部间隔
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &val, sizeof(val)) < 0) {
         anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
         return ANET_ERR;
@@ -133,6 +136,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     /* Consider the socket in error state after three we send three ACK
      * probes without getting a reply. */
     val = 3;
+    // 连续次数
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &val, sizeof(val)) < 0) {
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
         return ANET_ERR;
@@ -602,6 +606,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     while(1) {
         fd = accept(s,sa,len);
         if (fd == -1) {
+            // 只处理被信号中断的场景，至于无tcp链接时，则向外抛EAGAIN
             if (errno == EINTR)
                 continue;
             else {
