@@ -455,6 +455,7 @@ void flushAppendOnlyFile(int force) {
         /* With this append fsync policy we do background fsyncing.
          * If the fsync is still in progress we can try to delay
          * the write for a couple of seconds. */
+        // 如果目前已经有一个后台任务在待执行fsync,则延后2s执行落盘刷盘动作
         if (sync_in_progress) {
             if (server.aof_flush_postponed_start == 0) {
                 /* No previous write postponing, remember that we are
@@ -608,7 +609,7 @@ try_fsync:
         server.aof_last_fsync = server.unixtime;
     } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                 server.unixtime > server.aof_last_fsync)) {
-        // 每秒刷盘下，对于已经有任何正在执行刷盘fd任务时，不提交当前fd的刷盘任务
+        // 每秒刷盘下，对于已经有正在执行刷盘fd任务时，不提交当前fd的刷盘任务
         if (!sync_in_progress) {
             aof_background_fsync(server.aof_fd);
             server.aof_fsync_offset = server.aof_current_size;
@@ -652,7 +653,7 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
  * This command is used in order to translate EXPIRE and PEXPIRE commands
  * into PEXPIREAT command so that we retain precision in the append only
  * file, and the time is always absolute and not relative. */
-// 保存带有超时属性的key数据，以绝对时间保存时间数据
+// 保存带有超时属性的key数据，统一转为PEXPIREAT命令以绝对时间保存时间数据
 sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, robj *seconds) {
     long long when;
     robj *argv[3];
@@ -1703,6 +1704,7 @@ void aofClosePipes(void) {
  */
 /**
  * 创建子进程进行数据持久化操作，主进程继续执行
+ * 
  * @return
  */
 int rewriteAppendOnlyFileBackground(void) {

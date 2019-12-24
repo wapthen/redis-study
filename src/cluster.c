@@ -3971,9 +3971,11 @@ static struct redisNodeFlags redisNodeFlagsTable[] = {
 
 /* Concatenate the comma separated list of node flags to the given SDS
  * string 'ci'. */
+// 根据入参flags拼接出该节点的的flag数据
 sds representClusterNodeFlags(sds ci, uint16_t flags) {
     size_t orig_len = sdslen(ci);
     int i, size = sizeof(redisNodeFlagsTable)/sizeof(struct redisNodeFlags);
+    // 逐个遍历数组里的各个元素,跟入参flags进行比较
     for (i = 0; i < size; i++) {
         struct redisNodeFlags *nodeflag = redisNodeFlagsTable + i;
         if (flags & nodeflag->flag) ci = sdscat(ci, nodeflag->name);
@@ -3993,6 +3995,7 @@ sds clusterGenNodeDescription(clusterNode *node) {
     sds ci;
 
     /* Node coordinates */
+    // %.40s 表示最多40个字符
     ci = sdscatprintf(sdsempty(),"%.40s %s:%d@%d ",
         node->name,
         node->ip,
@@ -4004,8 +4007,10 @@ sds clusterGenNodeDescription(clusterNode *node) {
 
     /* Slave of... or just "-" */
     if (node->slaveof)
+        // 当前节点是备节点,拼接其对应的主节点名称
         ci = sdscatprintf(ci," %.40s ",node->slaveof->name);
     else
+        // 当前节点为主节点
         ci = sdscatlen(ci," - ",3);
 
     /* Latency from the POV of this node, config epoch, link status */

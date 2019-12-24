@@ -219,6 +219,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         // 此处释放锁，因为当前线程已经安全的拿到要处理的任务
         pthread_mutex_unlock(&bio_mutex[type]);
 
+        // 执行任务时无需占锁,因为如下任务都可能耗时很长
         /* Process the job accordingly to its type. */
         if (type == BIO_CLOSE_FILE) {
             /** when the process is the last owner of a reference to a file closing it means unlinking it,
@@ -255,12 +256,12 @@ void *bioProcessBackgroundJobs(void *arg) {
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
         // 再次加锁，用于准备从list中移除已处理完毕的job节点
+        // 之所以 加锁分为两次,原因是上述执行job时会耗时很长,为避免长时间占锁可能导致提交异步任务的主进程阻塞.
         pthread_mutex_lock(&bio_mutex[type]);
         listDelNode(bio_jobs[type],ln);
         bio_pending[type]--;
 
         /* Unblock threads blocked on bioWaitStepOfType() if any. */
-        //todo??
         pthread_cond_broadcast(&bio_step_cond[type]);
     }
 }

@@ -59,7 +59,7 @@ list *listCreate(void)
 /* Remove all the elements from the list without destroying the list itself. */
 /**
  * 将链表内部的数据元素清空，如有数据free函数指针则调用数据free指针释放数据内存
- * 注意：此函数会保留链表中的dup，free等函数指针元素
+ * 注意：此函数会保留链表的头节点: 头结点会记录头尾指针, 以及dup，free等函数指针元素
  */
 void listEmpty(list *list)
 {
@@ -82,7 +82,7 @@ void listEmpty(list *list)
  *
  * This function can't fail. */
 /**
- * 彻底释放链表内部的数据元素，并释放链表自身内存
+ * 彻底释放链表内部的数据元素，并释放链表头节点
  */
 void listRelease(list *list)
 {

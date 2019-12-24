@@ -60,7 +60,7 @@
     #endif
 #endif
 /**
- * 创建事件处理器
+ * 创建事件处理器, 容量为setsize个
  * 内部会调用实际的IO复用器，linux使用epoll
  * 如无内存，则返回NULL
  */
@@ -228,7 +228,7 @@ static void aeGetTime(long *seconds, long *milliseconds)
 }
 
 /**
- * 基于当前时间计算milliseconds毫秒后的具体时间
+ * 基于当前时间计算milliseconds毫秒后的具体时间, 数值存储到入参的sec ms中
  */
 static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
     long cur_sec, cur_ms, when_sec, when_ms;

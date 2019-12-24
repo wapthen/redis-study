@@ -105,9 +105,9 @@ typedef struct aeEventLoop {
     long long timeEventNextId;
     // 用来侦测服务器时间是否出现回溯,每次在processTimeEvents函数中更新为最新服务器时间
     time_t lastTime;     /* Used to detect system clock skew */
-    // 保存文件句柄的数组，里面会保存当前文件句柄所关注的事件类别
+    // 保存文件句柄的数组，通过下标快速根据文件句柄数值对应到具体的aeFileEvent数据, 里面会保存当前文件句柄所关注的事件类别
     aeFileEvent *events; /* Registered events */
-    // 可用文件句柄数组，里面会记录实际触发的事件类别
+    // 可用文件句柄数组，里面会记录实际触发的事件类别, 这里的数据是紧挨着存储,从0开始放置数据
     aeFiredEvent *fired; /* Fired events */
     // 注册的时间事件链表头，注意从业务角度来说，时间事件均为一次性事件，触发一次后根据结果决定是移除？还是再次更新注册此事件的触发时间.
     aeTimeEvent *timeEventHead;

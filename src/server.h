@@ -1106,7 +1106,7 @@ struct redisServer {
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     // aof_rewrite full, current file size
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
-    // 已执行写aof文件中的字节数
+    // 已成功执行写aof文件中的字节数, 用于写失败回滚文件使用
     off_t aof_current_size;         /* AOF current size. */
     // 已执行刷盘确保可靠的保存到aof文件中的字节数
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
@@ -1122,6 +1122,7 @@ struct redisServer {
     int aof_fd;       /* File descriptor of currently selected AOF file */
     int aof_selected_db; /* Currently selected DB in AOF */
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
+    // 最新执行刷盘aof的时刻
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */
     // 最近一次执行rewrite aof的开始时间
