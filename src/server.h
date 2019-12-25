@@ -1288,6 +1288,7 @@ struct redisServer {
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */ //释放是cluster集群模式
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
+    // cluster集群模式下的配置文件路径
     char *cluster_configfile; /* Cluster auto-generated config file name. */
     struct clusterState *cluster;  /* State of the cluster */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
@@ -1297,7 +1298,9 @@ struct redisServer {
     int cluster_slave_no_failover;  /* Prevent slave from starting a failover
                                        if the master is in failure state. */
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
+    // cluster集群模式下 redis单节点的端口号, 有最高优先级,会压盖自身生成的端口号
     int cluster_announce_port;     /* base port to announce on cluster bus. */
+    // cluster集群模式下 用于集群通信的端口号, 有最高优先级,会压盖自身生成的端口号
     int cluster_announce_bus_port; /* bus port to announce on cluster bus. */
     int cluster_module_flags;      /* Set of flags that Redis modules are able
                                       to set in order to suppress certain

@@ -576,6 +576,7 @@ void getRandomBytes(unsigned char *p, size_t len) {
         if (fp == NULL || fread(seed,sizeof(seed),1,fp) != 1) {
             /* Revert to a weaker seed, and in this case reseed again
              * at every call.*/
+            // 无法从urandom中初始化随机数种子,那么采用时间戳+进程id+文件句柄的方式来生成随机数种子
             for (unsigned int j = 0; j < sizeof(seed); j++) {
                 struct timeval tv;
                 gettimeofday(&tv,NULL);

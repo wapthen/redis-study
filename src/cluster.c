@@ -88,6 +88,7 @@ void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8
  * sake of locking if it does not already exist), C_ERR is returned.
  * If the configuration was loaded from the file, C_OK is returned. */
 // 从磁盘上的node.cnf加载集群配置文件
+// 如无此文件或者文件内容为空,则返回错误
 // node-name ip:port@cluster-port slave master-name ping-sent pong-receive 
 int clusterLoadConfig(char *filename) {
     FILE *fp = fopen(filename,"r");
@@ -108,6 +109,7 @@ int clusterLoadConfig(char *filename) {
 
     /* Check if the file is zero-length: if so return C_ERR to signal
      * we have to write the config. */
+    // 文件为空
     if (fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         fclose(fp);
         return C_ERR;
@@ -311,6 +313,7 @@ fmterr:
  * a single write to write the whole file. If the pre-existing file was
  * bigger we pad our payload with newlines that are anyway ignored and truncate
  * the file afterward. */
+// 入参表示是否强制刷盘,1表示刷盘0表示无需刷盘
 int clusterSaveConfig(int do_fsync) {
     sds ci;
     size_t content_size;
@@ -325,6 +328,7 @@ int clusterSaveConfig(int do_fsync) {
     ci = sdscatprintf(ci,"vars currentEpoch %llu lastVoteEpoch %llu\n",
         (unsigned long long) server.cluster->currentEpoch,
         (unsigned long long) server.cluster->lastVoteEpoch);
+    // 获取实际要写入的数据的字节数
     content_size = sdslen(ci);
 
     if ((fd = open(server.cluster_configfile,O_WRONLY|O_CREAT,0644))
@@ -334,17 +338,20 @@ int clusterSaveConfig(int do_fsync) {
     if (fstat(fd,&sb) != -1) {
         if (sb.st_size > (off_t)content_size) {
             ci = sdsgrowzero(ci,sb.st_size);
+            // 将文件中多出来的字节全部置为回车符
             memset(ci+content_size,'\n',sb.st_size-content_size);
         }
     }
     if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
     if (do_fsync) {
         server.cluster->todo_before_sleep &= ~CLUSTER_TODO_FSYNC_CONFIG;
+        // 阻塞式的强制刷盘:包含data与meta
         fsync(fd);
     }
 
     /* Truncate the file if needed to remove the final \n padding that
      * is just garbage. */
+    // 此时的ci可能有尾部填充的回车符,跟实际数据长度不同,则执行文件截断操作,确保文件保存的是真实配置数据
     if (content_size != sdslen(ci) && ftruncate(fd,content_size) == -1) {
         /* ftruncate() failing is not a critical error. */
     }
@@ -357,7 +364,7 @@ err:
     sdsfree(ci);
     return -1;
 }
-
+// 保存配置文件,如果失败则进程退出
 void clusterSaveConfigOrDie(int do_fsync) {
     if (clusterSaveConfig(do_fsync) == -1) {
         serverLog(LL_WARNING,"Fatal: can't update cluster config file.");
@@ -374,6 +381,8 @@ void clusterSaveConfigOrDie(int do_fsync) {
  *
  * On success C_OK is returned, otherwise an error is logged and
  * the function returns C_ERR to signal a lock was not acquired. */
+// 打开指定的配置文件,并使用flock函数锁住整个文件,并有意的泄露文件句柄,这样就可以一直持有文件锁直至进程终结
+// 避免同机不同的redia进程使用同一份磁盘上的配置文件
 int clusterLockConfig(char *filename) {
 /* flock() does not exist on Solaris
  * and a fcntl-based solution won't help, as we constantly re-open that file,
@@ -456,6 +465,7 @@ void clusterInit(void) {
 
     /* Lock the cluster config file to make sure every node uses
      * its own nodes.conf. */
+    // 加文件锁占用磁盘上的cluster配置文件
     if (clusterLockConfig(server.cluster_configfile) == C_ERR)
         exit(1);
 
@@ -478,6 +488,7 @@ void clusterInit(void) {
     /* Port sanity check II
      * The other handshake port check is triggered too late to stop
      * us from trying to use a too-high cluster port number. */
+    // 校验一下cluster的端口号范围是否会超过65535,因为cluster端口号是在redis端口号基础上加上10000
     if (server.port > (65535-CLUSTER_PORT_INCR)) {
         serverLog(LL_WARNING, "Redis port number too high. "
                    "Cluster communication port is 10,000 port "
@@ -487,13 +498,14 @@ void clusterInit(void) {
         exit(1);
     }
 
+    // 监听cluster端口号
     if (listenToPort(server.port+CLUSTER_PORT_INCR,
         server.cfd,&server.cfd_count) == C_ERR)
     {
         exit(1);
     } else {
         int j;
-
+        // 注册cluster句柄对应的回调函数
         for (j = 0; j < server.cfd_count; j++) {
             if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
                 clusterAcceptHandler, NULL) == AE_ERR)
@@ -613,6 +625,7 @@ void freeClusterLink(clusterLink *link) {
     zfree(link);
 }
 
+// 有client链接cluster监听端口时的回调函数
 #define MAX_CLUSTER_ACCEPTS_PER_CALL 1000
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
@@ -818,18 +831,23 @@ int clusterNodeFailureReportsCount(clusterNode *node) {
     return listLength(node->fail_reports);
 }
 
+// 将slave备节点从主节点里移除
 int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
     int j;
 
+    // 依次遍历主节点下的每一个备节点,通过节点指针是否相同来判定
     for (j = 0; j < master->numslaves; j++) {
         if (master->slaves[j] == slave) {
             if ((j+1) < master->numslaves) {
+                // 备节点指针数组从中间移除的话,需要将后续所有的数据前移至当前位置
+                // 并不是最后一个备节点
                 int remaining_slaves = (master->numslaves - j) - 1;
                 memmove(master->slaves+j,master->slaves+(j+1),
                         (sizeof(*master->slaves) * remaining_slaves));
             }
             master->numslaves--;
             if (master->numslaves == 0)
+                // 主节点无任何备节点,那么标记一下当前主节点已不适合做复制操作
                 master->flags &= ~CLUSTER_NODE_MIGRATE_TO;
             return C_OK;
         }
@@ -1502,16 +1520,19 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
 /* Reconfigure the specified node 'n' as a master. This function is called when
  * a node that we believed to be a slave is now acting as master in order to
  * update the state of the node. */
+// 将本节点置为master
 void clusterSetNodeAsMaster(clusterNode *n) {
+    // 已经是主节点情况下,直接返回
     if (nodeIsMaster(n)) return;
 
+    // 当前节点是某个主节点的备节点,则将其摘除
     if (n->slaveof) {
         clusterNodeRemoveSlave(n->slaveof,n);
         if (n != myself) n->flags |= CLUSTER_NODE_MIGRATE_TO;
     }
-    n->flags &= ~CLUSTER_NODE_SLAVE;
-    n->flags |= CLUSTER_NODE_MASTER;
-    n->slaveof = NULL;
+    n->flags &= ~CLUSTER_NODE_SLAVE;//移除备节点标记
+    n->flags |= CLUSTER_NODE_MASTER;//打上主节点标记
+    n->slaveof = NULL;//主节点模式下是没有上级节点信息
 
     /* Update config and state. */
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -3739,6 +3760,7 @@ int clusterDelNodeSlots(clusterNode *node) {
 
 /* Clear the migrating / importing state for all the slots.
  * This is useful at initialization and when turning a master into slave. */
+// 清除所有槽位的迁移信息,主要是在初始化以及主变为备时使用此函数
 void clusterCloseAllSlots(void) {
     memset(server.cluster->migrating_slots_to,0,
         sizeof(server.cluster->migrating_slots_to));
