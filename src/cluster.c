@@ -109,7 +109,7 @@ int clusterLoadConfig(char *filename) {
 
     /* Check if the file is zero-length: if so return C_ERR to signal
      * we have to write the config. */
-    // 文件为空
+    // 文件为空时返回错误
     if (fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         fclose(fp);
         return C_ERR;
@@ -122,6 +122,7 @@ int clusterLoadConfig(char *filename) {
      * together with the node ID of the sender/receiver.
      *
      * To simplify we allocate 1024+CLUSTER_SLOTS*128 bytes per line. */
+    // 简化处理,每一行表示一个节点的信息以及对应负责处理的槽位,最坏的情况是半数的槽位信息出现在同一行
     maxline = 1024+CLUSTER_SLOTS*128;
     line = zmalloc(maxline);
     while(fgets(line,maxline,fp) != NULL) {
@@ -133,6 +134,7 @@ int clusterLoadConfig(char *filename) {
         /* Skip blank lines, they can be created either by users manually
          * editing nodes.conf or by the config writing process if stopped
          * before the truncate() call. */
+        // 跳过空行
         if (line[0] == '\n' || line[0] == '\0') continue;
 
         /* Split the line into arguments for processing. */
@@ -313,7 +315,10 @@ fmterr:
  * a single write to write the whole file. If the pre-existing file was
  * bigger we pad our payload with newlines that are anyway ignored and truncate
  * the file afterward. */
-// 入参表示是否强制刷盘,1表示刷盘0表示无需刷盘
+// 入参表示是否强制刷盘,1表示强制阻塞式刷盘 0表示无需刷盘
+// 注意 本函数需确保原子性写文件, 即最后配置文件要么是旧数据,要么是新数据. 
+// 为避免在写文件时进程崩溃导致无法保证原子性.
+// 本函数将所有内容调用一次write全部写入,如果旧数据字节数多余新数据,则先以尾部填充'/n'确保完全覆盖旧数据,之后再执行截断文件操作
 int clusterSaveConfig(int do_fsync) {
     sds ci;
     size_t content_size;
@@ -337,8 +342,9 @@ int clusterSaveConfig(int do_fsync) {
     /* Pad the new payload if the existing file length is greater. */
     if (fstat(fd,&sb) != -1) {
         if (sb.st_size > (off_t)content_size) {
+            // 为确保单次write全部覆盖旧数据,
             ci = sdsgrowzero(ci,sb.st_size);
-            // 将文件中多出来的字节全部置为回车符
+            // 将新数据尾部填充回车符
             memset(ci+content_size,'\n',sb.st_size-content_size);
         }
     }
@@ -353,6 +359,7 @@ int clusterSaveConfig(int do_fsync) {
      * is just garbage. */
     // 此时的ci可能有尾部填充的回车符,跟实际数据长度不同,则执行文件截断操作,确保文件保存的是真实配置数据
     if (content_size != sdslen(ci) && ftruncate(fd,content_size) == -1) {
+        // 此处失败也是无损的
         /* ftruncate() failing is not a critical error. */
     }
     close(fd);
@@ -437,6 +444,7 @@ void clusterUpdateMyselfFlags(void) {
     }
 }
 
+// 初始化集群数据结构:clusterState
 void clusterInit(void) {
     int saveconf = 0;
 
@@ -706,6 +714,7 @@ unsigned int keyHashSlot(char *key, int keylen) {
  *
  * The node is created and returned to the user, but it is not automatically
  * added to the nodes hash table. */
+// 创建一个节点数据结构, 如果nodename为空 则主动创建一个新的nodename
 clusterNode *createClusterNode(char *nodename, int flags) {
     clusterNode *node = zmalloc(sizeof(*node));
 
@@ -746,6 +755,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
  * The function returns 0 if it just updates a timestamp of an existing
  * failure report from the same sender. 1 is returned if a new failure
  * report is created. */
+// 将发送者发送的关于某一节点的失败报告添加到对应节点的失败报告list中
 int clusterNodeAddFailureReport(clusterNode *failing, clusterNode *sender) {
     list *l = failing->fail_reports;
     listNode *ln;
@@ -754,6 +764,7 @@ int clusterNodeAddFailureReport(clusterNode *failing, clusterNode *sender) {
 
     /* If a failure report from the same sender already exists, just update
      * the timestamp. */
+    // 首先遍历一遍list,确认当前的发送这节点是否已经存在,如果已经存在则更新时间戳即可
     listRewind(l,&li);
     while ((ln = listNext(&li)) != NULL) {
         fr = ln->value;
@@ -764,6 +775,7 @@ int clusterNodeAddFailureReport(clusterNode *failing, clusterNode *sender) {
     }
 
     /* Otherwise create a new report. */
+    // 至此需要创建一个新的失败报告节点添加到list的尾部
     fr = zmalloc(sizeof(*fr));
     fr->node = sender;
     fr->time = mstime();
@@ -776,6 +788,7 @@ int clusterNodeAddFailureReport(clusterNode *failing, clusterNode *sender) {
  * flagged as FAIL we need to have a local PFAIL state that is at least
  * older than the global node timeout, so we don't just trust the number
  * of failure reports from other nodes. */
+// 清除过期的失败报告, 过期是指失败报告的时刻跟当前时刻差值超过2*cluster_node_timeout
 void clusterNodeCleanupFailureReports(clusterNode *node) {
     list *l = node->fail_reports;
     listNode *ln;
@@ -785,9 +798,11 @@ void clusterNodeCleanupFailureReports(clusterNode *node) {
                      CLUSTER_FAIL_REPORT_VALIDITY_MULT;
     mstime_t now = mstime();
 
+    // 将迭代器指向list的头结点,准备开始逐一遍历每个节点数据
     listRewind(l,&li);
     while ((ln = listNext(&li)) != NULL) {
         fr = ln->value;
+        // 对于过期的失败报告,直接删除点此节点
         if (now - fr->time > maxtime) listDelNode(l,ln);
     }
 }
@@ -803,6 +818,7 @@ void clusterNodeCleanupFailureReports(clusterNode *node) {
  *
  * The function returns 1 if the failure report was found and removed.
  * Otherwise 0 is returned. */
+// 从node节点的失败报告list中删除由sender节点发送的失败报告数据
 int clusterNodeDelFailureReport(clusterNode *node, clusterNode *sender) {
     list *l = node->fail_reports;
     listNode *ln;
@@ -810,15 +826,19 @@ int clusterNodeDelFailureReport(clusterNode *node, clusterNode *sender) {
     clusterNodeFailReport *fr;
 
     /* Search for a failure report from this sender. */
+    // 将迭代器指向失败报告list的头结点,逐个遍历比较
     listRewind(l,&li);
     while ((ln = listNext(&li)) != NULL) {
         fr = ln->value;
         if (fr->node == sender) break;
     }
+    // 未找到sender节点发送的失败报告数据则直接返回
     if (!ln) return 0; /* No failure report from this sender. */
 
     /* Remove the failure report. */
+    // 从list中删除此节点数据
     listDelNode(l,ln);
+    // 趁此机会清除一遍过期的失败报告节点
     clusterNodeCleanupFailureReports(node);
     return 1;
 }
@@ -826,12 +846,15 @@ int clusterNodeDelFailureReport(clusterNode *node, clusterNode *sender) {
 /* Return the number of external nodes that believe 'node' is failing,
  * not including this node, that may have a PFAIL or FAIL state for this
  * node as well. */
+// 返回失败报告list的节点个数
 int clusterNodeFailureReportsCount(clusterNode *node) {
+    // 清除一遍过期的失败报告数据
     clusterNodeCleanupFailureReports(node);
+    // 返回失败报告list的节点个数
     return listLength(node->fail_reports);
 }
 
-// 将slave备节点从主节点里移除
+// 将slave备节点从master主节点里移除
 int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
     int j;
 
@@ -855,12 +878,15 @@ int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
     return C_ERR;
 }
 
+// 向master主节点的备节点数组中增加一个新的备节点
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave) {
     int j;
 
     /* If it's already a slave, don't add it again. */
+    // 校验一下此新的备节点是否已经存在
     for (j = 0; j < master->numslaves; j++)
         if (master->slaves[j] == slave) return C_ERR;
+    // 此新的备节点需要加入备节点数组的尾部
     master->slaves = zrealloc(master->slaves,
         sizeof(clusterNode*)*(master->numslaves+1));
     master->slaves[master->numslaves] = slave;
@@ -869,40 +895,50 @@ int clusterNodeAddSlave(clusterNode *master, clusterNode *slave) {
     return C_OK;
 }
 
+// 统计指定节点的备节点处于失败状态的个数
 int clusterCountNonFailingSlaves(clusterNode *n) {
     int j, okslaves = 0;
 
+    // 逐个判定备节点是否处于fail失败状态
     for (j = 0; j < n->numslaves; j++)
         if (!nodeFailed(n->slaves[j])) okslaves++;
     return okslaves;
 }
 
 /* Low level cleanup of the node structure. Only called by clusterDelNode(). */
+// 释放指定node节点自身内的各项数据
 void freeClusterNode(clusterNode *n) {
     sds nodename;
     int j;
 
     /* If the node has associated slaves, we have to set
      * all the slaves->slaveof fields to NULL (unknown). */
+    // 如果此节点有备节点,则将备节点数组各个元素置为NULL
     for (j = 0; j < n->numslaves; j++)
         n->slaves[j]->slaveof = NULL;
 
     /* Remove this node from the list of slaves of its master. */
+    // 如果此节点是备节点,那么从主节点中移除此备节点数据
     if (nodeIsSlave(n) && n->slaveof) clusterNodeRemoveSlave(n->slaveof,n);
 
     /* Unlink from the set of nodes. */
+    // 构造一个临时的新nodeid,用于从全局的集群节点字典中删除
     nodename = sdsnewlen(n->name, CLUSTER_NAMELEN);
     serverAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
     sdsfree(nodename);
 
     /* Release link and associated data structures. */
+    // 释放此节点对应的link数据
     if (n->link) freeClusterLink(n->link);
+    // 释放此节点的失败报告list
     listRelease(n->fail_reports);
+    // 释放此节点的备节点指针数组, 内部会判定是否为NULL
     zfree(n->slaves);
     zfree(n);
 }
 
 /* Add a node to the nodes hash table */
+// 将一个新节点添加到全局的集群字典里
 int clusterAddNode(clusterNode *node) {
     int retval;
 
@@ -922,17 +958,22 @@ int clusterAddNode(clusterNode *node) {
  *    from the hash table and from the list of slaves of its master, if
  *    it is a slave node.
  */
+// 集群中删除指定的节点
 void clusterDelNode(clusterNode *delnode) {
     int j;
     dictIterator *di;
     dictEntry *de;
 
+    // 从全局的槽数组中删除指定节点负责的槽位信息
     /* 1) Mark slots as unassigned. */
     for (j = 0; j < CLUSTER_SLOTS; j++) {
+        // 逐项遍历迁入槽位数组,发现由此节点服务的槽位则置为NULL
         if (server.cluster->importing_slots_from[j] == delnode)
             server.cluster->importing_slots_from[j] = NULL;
+        // 逐项遍历迁出槽位数组,发现由此节点服务的槽位则置为NULL
         if (server.cluster->migrating_slots_to[j] == delnode)
             server.cluster->migrating_slots_to[j] = NULL;
+        // 将槽位图 与 此节点 的相互映射关系删除
         if (server.cluster->slots[j] == delnode)
             clusterDelSlot(j);
     }
@@ -3646,9 +3687,10 @@ void clusterDoBeforeSleep(int flags) {
 
 /* Test bit 'pos' in a generic bitmap. Return 1 if the bit is set,
  * otherwise 0. */
+// 探测某一位的bit数值是否为1
 int bitmapTestBit(unsigned char *bitmap, int pos) {
-    off_t byte = pos/8;
-    int bit = pos&7;
+    off_t byte = pos/8;//定位到某一个字节
+    int bit = pos&7;//定位到单字节中的某一位
     return (bitmap[byte] & (1<<bit)) != 0;
 }
 
@@ -3660,10 +3702,11 @@ void bitmapSetBit(unsigned char *bitmap, int pos) {
 }
 
 /* Clear the bit at position 'pos' in a bitmap. */
+// 清除位图里的某一位
 void bitmapClearBit(unsigned char *bitmap, int pos) {
-    off_t byte = pos/8;
-    int bit = pos&7;
-    bitmap[byte] &= ~(1<<bit);
+    off_t byte = pos/8;//定位到某一个字节
+    int bit = pos&7;//定位到单字节中的某一位
+    bitmap[byte] &= ~(1<<bit); //将此位置为0
 }
 
 /* Return non-zero if there is at least one master with slaves in the cluster.
@@ -3709,14 +3752,19 @@ int clusterNodeSetSlotBit(clusterNode *n, int slot) {
 }
 
 /* Clear the slot bit and return the old value. */
+// 清除指定节点里的某一组node-->槽位映射关系
 int clusterNodeClearSlotBit(clusterNode *n, int slot) {
+    // 探测指定位上的旧值
     int old = bitmapTestBit(n->slots,slot);
+    // 清除指定位上的数值
     bitmapClearBit(n->slots,slot);
+    // 如果旧值为1, 那么需要将此节点负责的槽位个数减1
     if (old) n->numslots--;
     return old;
 }
 
 /* Return the slot bit from the cluster node structure. */
+// 判定此槽位是否由指定节点负责处理, 内部依据指定节点的槽位图来判定
 int clusterNodeGetSlotBit(clusterNode *n, int slot) {
     return bitmapTestBit(n->slots,slot);
 }
@@ -3735,22 +3783,29 @@ int clusterAddSlot(clusterNode *n, int slot) {
 /* Delete the specified slot marking it as unassigned.
  * Returns C_OK if the slot was assigned, otherwise if the slot was
  * already unassigned C_ERR is returned. */
+// 将指定槽位的 槽位与节点互为映射关系删除
+// 注意: 槽位-->node的映射关系在全局的clusterState结构体中;
+//      node-->槽位的映射关系在各自的clusterNode结构体中;
 int clusterDelSlot(int slot) {
     clusterNode *n = server.cluster->slots[slot];
 
     if (!n) return C_ERR;
+    // 清除node-->槽位的映射关系
     serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
+    // 清除槽位-->node的映射关系
     server.cluster->slots[slot] = NULL;
     return C_OK;
 }
 
 /* Delete all the slots associated with the specified node.
  * The number of deleted slots is returned. */
+// 清除指定节点里的 所有槽位与节点映射关系
 int clusterDelNodeSlots(clusterNode *node) {
     int deleted = 0, j;
 
     for (j = 0; j < CLUSTER_SLOTS; j++) {
         if (clusterNodeGetSlotBit(node,j)) {
+            // 清除指定槽位与节点的映射关系数据
             clusterDelSlot(j);
             deleted++;
         }
@@ -3760,7 +3815,7 @@ int clusterDelNodeSlots(clusterNode *node) {
 
 /* Clear the migrating / importing state for all the slots.
  * This is useful at initialization and when turning a master into slave. */
-// 清除所有槽位的迁移信息,主要是在初始化以及主变为备时使用此函数
+// 清除所有槽位的迁入迁出信息,主要是在初始化以及主变为备时使用此函数
 void clusterCloseAllSlots(void) {
     memset(server.cluster->migrating_slots_to,0,
         sizeof(server.cluster->migrating_slots_to));
@@ -3953,19 +4008,26 @@ int verifyClusterConfigWithData(void) {
 
 /* Set the specified node 'n' as master for this node.
  * If this node is currently a master, it is turned into a slave. */
+// 将指定节点n作为本节点的主节点
 void clusterSetMaster(clusterNode *n) {
     serverAssert(n != myself);
     serverAssert(myself->numslots == 0);
 
     if (nodeIsMaster(myself)) {
+        // 本节点目前是主,则降为备节点
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
         myself->flags |= CLUSTER_NODE_SLAVE;
+        // 清除所有迁入迁出槽位信息
         clusterCloseAllSlots();
     } else {
+        // 本节点是个备节点
         if (myself->slaveof)
+            // 将本节点从目前的主节点中移除
             clusterNodeRemoveSlave(myself->slaveof,myself);
     }
+    // 设置节点n为当前节点的主节点
     myself->slaveof = n;
+    // 将本节点加入到主节点的备节点数组里
     clusterNodeAddSlave(n,myself);
     replicationSetMaster(n->ip, n->port);
     resetManualFailover();

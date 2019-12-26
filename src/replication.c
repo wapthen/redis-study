@@ -1955,24 +1955,31 @@ int cancelReplicationHandshake(void) {
 }
 
 /* Set replication to the specified master address and port. */
+// 本节点的复制源设置为指定的ip 端口
 void replicationSetMaster(char *ip, int port) {
     int was_master = server.masterhost == NULL;
 
+    // 释放旧的源地址
     sdsfree(server.masterhost);
+    // 设置最新的原地址
     server.masterhost = sdsnew(ip);
     server.masterport = port;
+    // 释放旧的源client代理
     if (server.master) {
         freeClient(server.master);
     }
+    // 切断目前处于阻塞中的所有client,因为本节点降为备节点了
     disconnectAllBlockedClients(); /* Clients blocked in master, now slave. */
 
     /* Force our slaves to resync with us as well. They may hopefully be able
      * to partially resync with us, but we can notify the replid change. */
+    // 切断本节点的所有备节点client
     disconnectSlaves();
     cancelReplicationHandshake();
     /* Before destroying our master state, create a cached master using
      * our own parameters, to later PSYNC with the new master. */
     if (was_master) replicationCacheMasterUsingMyself();
+    // 标记本节点需要在后续过程中跟主节点建立连接
     server.repl_state = REPL_STATE_CONNECT;
 }
 

@@ -19,6 +19,7 @@
 #define CLUSTER_DEFAULT_SLAVE_VALIDITY 10 /* Slave max data age factor. */
 #define CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE 1
 #define CLUSTER_DEFAULT_SLAVE_NO_FAILOVER 0 /* Failover by default. */
+// 失败报告过期乘数因子
 #define CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 #define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
 #define CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
@@ -63,6 +64,7 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
+// 主节点有备节点,处于可以数据复制操作的状态
 #define CLUSTER_NODE_MIGRATE_TO 256 /* Master eligible for replica migration. */
 #define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
@@ -132,7 +134,7 @@ typedef struct clusterNodeFailReport {
 
 // 集群节点结构体
 typedef struct clusterNode {
-    // node节点创建的时刻
+    // node节点创建的时刻,单位毫秒
     mstime_t ctime; /* Node object creation time. */
     // node id标示
     char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
@@ -184,7 +186,7 @@ typedef struct clusterState {
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
     // 集群里的主节点个数
     int size;             /* Num of master nodes with at least one slot */
-    // 集群里的节点字典
+    // 集群里的节点字典, 记录了 nodeid-->node的映射关系
     dict *nodes;          /* Hash table of name -> clusterNode structures */
     // 集群里处在黑名单中的节点字典
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
@@ -192,7 +194,7 @@ typedef struct clusterState {
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
     // 集群中处于正在迁入的槽位以及对应迁入的节点指针数组
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
-    // 集群槽位图对应的各个node节点指针数组
+    // 集群槽位图对应的各个node节点指针数组,表示 槽id-->node节点 映射关系
     clusterNode *slots[CLUSTER_SLOTS];
     // 集群里每个槽位里所包含的key主键个数
     uint64_t slots_keys_count[CLUSTER_SLOTS];
@@ -242,6 +244,7 @@ typedef struct {
     uint32_t notused1;
 } clusterMsgDataGossip;
 
+// 广播某一个节点是fail的信息结构体
 typedef struct {
     char nodename[CLUSTER_NAMELEN];
 } clusterMsgDataFail;
@@ -254,7 +257,9 @@ typedef struct {
 
 typedef struct {
     uint64_t configEpoch; /* Config epoch of the specified instance. */
+    // 节点ID
     char nodename[CLUSTER_NAMELEN]; /* Name of the slots owner. */
+    // 槽位图
     unsigned char slots[CLUSTER_SLOTS/8]; /* Slots bitmap. */
 } clusterMsgDataUpdate;
 
@@ -295,31 +300,49 @@ union clusterMsgData {
 
 #define CLUSTER_PROTO_VER 1 /* Cluster bus protocol version. */
 
+// cluster bus集群传播的消息结构体
 typedef struct {
+    // 消息体标记
     char sig[4];        /* Signature "RCmb" (Redis Cluster message bus). */
+    // 消息体整体长度
     uint32_t totlen;    /* Total length of this message */
+    // 消息版本号
     uint16_t ver;       /* Protocol version, currently set to 1. */
+    // redis base port
     uint16_t port;      /* TCP base port number. */
+    // 消息类别
     uint16_t type;      /* Message type */
+    // 消息body个数
     uint16_t count;     /* Only used for some kind of messages. */
+    // 发送此消息的节点纪元
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
     uint64_t configEpoch;   /* The config epoch if it's a master, or the last
                                epoch advertised by its master if it is a
                                slave. */
     uint64_t offset;    /* Master replication offset if node is a master or
                            processed replication offset if node is a slave. */
+    // 发送此消息的节点id
     char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
+    // 发送此消息的节点所记录的槽位图
     unsigned char myslots[CLUSTER_SLOTS/8];
+    // 此节点锁对应的主节点id
     char slaveof[CLUSTER_NAMELEN];
+    // 此节点的ip地址
     char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
+    // 填充数据
     char notused1[34];  /* 34 bytes reserved for future usage. */
+    // 发送此消息的节点bus端口号
     uint16_t cport;      /* Sender TCP cluster bus port */
+    // 发送此消息的节点标记字段
     uint16_t flags;      /* Sender node flags */
+    // 发送此消的节点记录的集群状态
     unsigned char state; /* Cluster state from the POV of the sender */
     unsigned char mflags[3]; /* Message flags: CLUSTERMSG_FLAG[012]_... */
+    // 消息body
     union clusterMsgData data;
 } clusterMsg;
 
+// 消息体头部字段长度
 #define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))
 
 /* Message flags better specify the packet content or are used to
