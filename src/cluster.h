@@ -45,7 +45,7 @@ struct clusterNode;
 typedef struct clusterLink {
     // tcp 长连接创建时刻
     mstime_t ctime;             /* Link creation time */
-    // tcp 套接字句柄
+    // 用于bus通信的tcp 套接字句柄
     int fd;                     /* TCP socket file descriptor */
     // tcp 发送缓冲区
     sds sndbuf;
@@ -155,9 +155,9 @@ typedef struct clusterNode {
                                     may be NULL even if the node is a slave
                                     if we don't have the master node in our
                                     tables. */
-    // 节点最新一次发送ping的时刻
+    // 节点最新一次发送ping的时刻,单位毫秒
     mstime_t ping_sent;      /* Unix time we sent latest ping */
-    // 节点最新一次接收到pong的时刻
+    // 节点最新一次接收pong的时刻,单位毫秒
     mstime_t pong_received;  /* Unix time we received the pong */
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
@@ -222,9 +222,10 @@ typedef struct clusterState {
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     /* Messages received and sent by type. */
-    long long stats_bus_messages_sent[CLUSTERMSG_TYPE_COUNT];
-    long long stats_bus_messages_received[CLUSTERMSG_TYPE_COUNT];
-    long long stats_pfail_nodes;    /* Number of nodes in PFAIL status,
+    long long stats_bus_messages_sent[CLUSTERMSG_TYPE_COUNT];//统计各种类型的消息发送次数
+    long long stats_bus_messages_received[CLUSTERMSG_TYPE_COUNT];//统计各种各类型的消息接收次数
+    long long stats_pfail_nodes;   // 处于PFAIL状态的节点个数
+                                      /* Number of nodes in PFAIL status,
                                        excluding nodes without address. */
 } clusterState;
 
@@ -234,9 +235,9 @@ typedef struct clusterState {
  * to the first node, using the getsockname() function. Then we'll use this
  * address for all the next messages. */
 typedef struct {
-    char nodename[CLUSTER_NAMELEN];
-    uint32_t ping_sent;
-    uint32_t pong_received;
+    char nodename[CLUSTER_NAMELEN];//节点nodeid
+    uint32_t ping_sent;//最新一次发送ping的时刻,单位秒
+    uint32_t pong_received;//最新一次收到pong的时刻,单位秒
     char ip[NET_IP_STR_LEN];  /* IP address last time it was seen */
     uint16_t port;              /* base port last time it was seen */
     uint16_t cport;             /* cluster port last time it was seen */
@@ -323,7 +324,7 @@ typedef struct {
                            processed replication offset if node is a slave. */
     // 发送此消息的节点id
     char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
-    // 发送此消息的节点所记录的槽位图
+    // 发送此消息的节点所记录的主节点中的槽位图
     unsigned char myslots[CLUSTER_SLOTS/8];
     // 此节点锁对应的主节点id
     char slaveof[CLUSTER_NAMELEN];

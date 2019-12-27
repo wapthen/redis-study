@@ -1021,6 +1021,7 @@ struct redisServer {
     uint64_t next_client_id;    /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
     /* RDB / AOF loading information */
+    // 当前处于启动加载数据过程中
     int loading;                /* We are loading data from disk if true */
     off_t loading_total_bytes;
     off_t loading_loaded_bytes;
@@ -1287,9 +1288,11 @@ struct redisServer {
                                    xor of NOTIFY_... flags. */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */ //释放是cluster集群模式
+    // cluster集群节点的超时数值,单位ms
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
     // cluster集群模式下的配置文件路径
     char *cluster_configfile; /* Cluster auto-generated config file name. */
+    // 全局集群节点数据结构
     struct clusterState *cluster;  /* State of the cluster */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
