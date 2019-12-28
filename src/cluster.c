@@ -1367,15 +1367,19 @@ void clearNodeFailureIfNeeded(clusterNode *node) {
 /* Return true if we already have a node in HANDSHAKE state matching the
  * specified ip address and port number. This function is used in order to
  * avoid adding a new handshake node for the same address multiple times. */
+// 校验在集群节点中 指定的ip 端口是否有重复的处于握手中的数据
+// 注意如果集群中已经有处于握手相同地址节点,那么返回true
 int clusterHandshakeInProgress(char *ip, int port, int cport) {
     dictIterator *di;
     dictEntry *de;
 
+    // 逐一遍历所有的节点数据
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
         if (!nodeInHandshake(node)) continue;
+        // 处于握手中的节点需要判定ip 端口等信息
         if (!strcasecmp(node->ip,ip) &&
             node->port == port &&
             node->cport == cport) break;
@@ -1391,12 +1395,14 @@ int clusterHandshakeInProgress(char *ip, int port, int cport) {
  *
  * EAGAIN - There is already an handshake in progress for this address.
  * EINVAL - IP or port are not valid. */
+// 指定的地址进行握手操作
 int clusterStartHandshake(char *ip, int port, int cport) {
     clusterNode *n;
     char norm_ip[NET_IP_STR_LEN];
     struct sockaddr_storage sa;
 
     /* IP sanity check */
+    // 校验ip入参格式是否合法同时分辨出协议是ipv4还是ipv6
     if (inet_pton(AF_INET,ip,
             &(((struct sockaddr_in *)&sa)->sin_addr)))
     {
@@ -1411,6 +1417,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
     }
 
     /* Port sanity check */
+    // 校验节点端口以及bus端口是否在范围内
     if (port <= 0 || port > 65535 || cport <= 0 || cport > 65535) {
         errno = EINVAL;
         return 0;
@@ -1418,6 +1425,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
 
     /* Set norm_ip as the normalized string representation of the node
      * IP address. */
+    // ip转换为字符串
     memset(norm_ip,0,NET_IP_STR_LEN);
     if (sa.ss_family == AF_INET)
         inet_ntop(AF_INET,
@@ -1428,6 +1436,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
             (void*)&(((struct sockaddr_in6 *)&sa)->sin6_addr),
             norm_ip,NET_IP_STR_LEN);
 
+    // 校验此地址是否已存在集群节点中并且同样处于握手状态
     if (clusterHandshakeInProgress(norm_ip,port,cport)) {
         errno = EAGAIN;
         return 0;
@@ -1436,6 +1445,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
     /* Add the node with a random address (NULL as first argument to
      * createClusterNode()). Everything will be fixed during the
      * handshake. */
+    // 创建一个新的node节点并添加到集群中,节点id此时暂时使用一个随机值,后续在握手完毕后会更正为正确的数值
     n = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE|CLUSTER_NODE_MEET);
     memcpy(n->ip,norm_ip,sizeof(n->ip));
     n->port = port;
@@ -1448,7 +1458,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
  * Note that this function assumes that the packet is already sanity-checked
  * by the caller, not in the content of the gossip section, but in the
  * length. */
-// 处理ping pong消息, 注意此时link的节点可能
+// 处理ping pong消息
 void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     // 消息头之后紧挨着body个数
     uint16_t count = ntohs(hdr->count);
@@ -1501,6 +1511,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
              * we have no pending ping for the node, nor we have failure
              * reports for this node, update the last pong time with the
              * one we see from the other nodes. */
+            // 在合适的场景下, 更新node节点的pong_receive字段数值
             if (!(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
                 node->ping_sent == 0 &&
                 clusterNodeFailureReportsCount(node) == 0)
@@ -1524,6 +1535,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
              * can talk with this other node, update the address, disconnect
              * the old link if any, so that we'll attempt to connect with the
              * new address. */
+            // 处理节点名不变,但是地址发生了变化的场景
             if (node->flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL) &&
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
@@ -1531,6 +1543,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                  node->port != ntohs(g->port) ||
                  node->cport != ntohs(g->cport)))
             {
+                // 因为地址发生了变化,所以需要将旧的link移除,更新node里的ip 端口地址
                 if (node->link) freeClusterLink(node->link);
                 memcpy(node->ip,g->ip,NET_IP_STR_LEN);
                 node->port = ntohs(g->port);
@@ -1544,6 +1557,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
              * Note that we require that the sender of this gossip message
              * is a well known node in our cluster, otherwise we risk
              * joining another cluster. */
+            // 消息中的节点是未知的新节点,且发送方为已知节点,那么就跟此新节点进行握手链接
             if (sender &&
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !clusterBlacklistExists(g->nodename))
@@ -1863,6 +1877,7 @@ int clusterProcessPacket(clusterLink *link) {
     }
 
     /* Initial processing of PING and MEET requests replying with a PONG. */
+    // 对于收到ping or meet需要回复一个pong
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_MEET) {
         serverLog(LL_DEBUG,"Ping packet received: %p", (void*)link->node);
 
@@ -2134,16 +2149,20 @@ int clusterProcessPacket(clusterLink *link) {
         /* Get info from the gossip section */
         if (sender) clusterProcessGossipSection(hdr,link);
     } else if (type == CLUSTERMSG_TYPE_FAIL) {
+        // 收到一个FAIL消息
         clusterNode *failing;
 
         if (sender) {
+            // 如果发送方为已知节点
             failing = clusterLookupNode(hdr->data.fail.about.nodename);
             if (failing &&
                 !(failing->flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_MYSELF)))
             {
+                // 报告处于失败的节点也是已知节点并且并不是自身节点同时也未处于FAIL状态
                 serverLog(LL_NOTICE,
                     "FAIL message received from %.40s about %.40s",
                     hdr->sender, hdr->data.fail.about.nodename);
+                // 标记此失败的节点状态为FAIL 并且移除PFAIL状态
                 failing->flags |= CLUSTER_NODE_FAIL;
                 failing->fail_time = mstime();
                 failing->flags &= ~CLUSTER_NODE_PFAIL;
