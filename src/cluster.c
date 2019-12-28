@@ -2272,12 +2272,14 @@ void handleLinkIOError(clusterLink *link) {
 /* Send data. This is handled using a trivial send buffer that gets
  * consumed by write(). We don't try to optimize this for speed too much
  * as this is a very low traffic channel. */
+// 在bus tcp中发送缓冲区里的已有数据
 void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     clusterLink *link = (clusterLink*) privdata;
     ssize_t nwritten;
     UNUSED(el);
     UNUSED(mask);
 
+    // 将link中的发送缓存区里的数据写入指定的tcp套接字
     nwritten = write(fd, link->sndbuf, sdslen(link->sndbuf));
     if (nwritten <= 0) {
         serverLog(LL_DEBUG,"I/O error writing to node link: %s",
@@ -2285,8 +2287,10 @@ void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         handleLinkIOError(link);
         return;
     }
+    // 调整未写完的数据空间
     sdsrange(link->sndbuf,nwritten,-1);
     if (sdslen(link->sndbuf) == 0)
+        // 发送缓冲区为空时, 将reactor里注册的套接字移除write事件
         aeDeleteFileEvent(server.el, link->fd, AE_WRITABLE);
 }
 
@@ -3524,6 +3528,7 @@ void clusterHandleManualFailover(void) {
  * -------------------------------------------------------------------------- */
 
 /* This is executed 10 times every second */
+// 循环定时执行入口
 void clusterCron(void) {
     dictIterator *di;
     dictEntry *de;
@@ -3533,6 +3538,7 @@ void clusterCron(void) {
     int this_slaves; /* Number of ok slaves for our master (if we are slave). */
     mstime_t min_pong = 0, now = mstime();
     clusterNode *min_pong_node = NULL;
+    // 函数内可见的长生命周期变量
     static unsigned long long iteration = 0;
     mstime_t handshake_timeout;
 
