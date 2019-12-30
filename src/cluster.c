@@ -2023,6 +2023,7 @@ int clusterProcessPacket(clusterLink *link) {
 
         /* Update our info about the node */
         if (link->node && type == CLUSTERMSG_TYPE_PONG) {
+            // 收到针对之前PING的应答PONG消息,更细本地的标记
             link->node->pong_received = mstime();
             link->node->ping_sent = 0;
 
