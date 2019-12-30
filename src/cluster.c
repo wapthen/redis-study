@@ -1574,11 +1574,13 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
 /* IP -> string conversion. 'buf' is supposed to at least be 46 bytes.
  * If 'announced_ip' length is non-zero, it is used instead of extracting
  * the IP from the socket peer address. */
+// 将ip转为字符串类型, 保存到buf结果中,如果announceip非空,则以此保存到buf中
 void nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
     if (announced_ip[0] != '\0') {
         memcpy(buf,announced_ip,NET_IP_STR_LEN);
         buf[NET_IP_STR_LEN-1] = '\0'; /* We are not sure the input is sane. */
     } else {
+        // 根据link中的fd获取远端的ip地址
         anetPeerToString(link->fd, buf, NET_IP_STR_LEN, NULL);
     }
 }
@@ -1609,12 +1611,14 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
      * As a side effect this function never frees the passed 'link', so
      * it is safe to call during packet processing. */
     if (link == node->link) return 0;
-
+    // 优先以消息中记录的地址保存到ip数组中,否则以link的socket套接字获取远端的地址保存到ip数组中
     nodeIp2String(ip,link,hdr->myip);
+    // 地址相同没有变化
     if (node->port == port && node->cport == cport &&
         strcmp(ip,node->ip) == 0) return 0;
 
     /* IP / port is different, update it. */
+    // ip端口不同,以最新的替换旧值
     memcpy(node->ip,ip,sizeof(ip));
     node->port = port;
     node->cport = cport;
@@ -1626,6 +1630,7 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     /* Check if this is our master and we have to change the
      * replication target as well. */
     if (nodeIsSlave(myself) && myself->slaveof == node)
+        // 本节点是备节点,而且此node为本节点的主节点, 那么将本机的复制地址更新为最新的ip端口
         replicationSetMaster(node->ip, node->port);
     return 1;
 }
@@ -1967,12 +1972,15 @@ int clusterProcessPacket(clusterLink *link) {
                 clusterRenameNode(link->node, hdr->sender);
                 serverLog(LL_DEBUG,"Handshake with node %.40s completed.",
                     link->node->name);
+                // 节点已经完成握手
                 link->node->flags &= ~CLUSTER_NODE_HANDSHAKE;
+                // 设置本节点为主or备
                 link->node->flags |= flags&(CLUSTER_NODE_MASTER|CLUSTER_NODE_SLAVE);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
             } else if (memcmp(link->node->name,hdr->sender,
                         CLUSTER_NAMELEN) != 0)
             {
+                // 如果收到的消息与本地记录的节点id不同,那么我们需要将本地记录的节点id link数据删除掉
                 /* If the reply has a non matching node ID we
                  * disconnect this node and set it as not having an associated
                  * address. */
@@ -1980,10 +1988,12 @@ int clusterProcessPacket(clusterLink *link) {
                     link->node->name,
                     (int)(mstime()-(link->node->ctime)),
                     link->node->flags);
+                // 本链接没有地址
                 link->node->flags |= CLUSTER_NODE_NOADDR;
                 link->node->ip[0] = '\0';
                 link->node->port = 0;
                 link->node->cport = 0;
+                // 删除此节点的link数据
                 freeClusterLink(link);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
                 return 0;
@@ -3548,15 +3558,19 @@ void clusterCron(void) {
      * The option can be set at runtime via CONFIG SET, so we periodically check
      * if the option changed to reflect this into myself->ip. */
     {
-        static char *prev_ip = NULL;
-        char *curr_ip = server.cluster_announce_ip;
+        // cluster_announce_ip 是在进程运行后可以手动指定本节点的ip地址,所以需要周期性确认此值是否有变化,如有变化则在此时进行替换更新
+        static char *prev_ip = NULL; // 局部可见的长生命周期变量
+        char *curr_ip = server.cluster_announce_ip; //最新ip值
         int changed = 0;
 
+        // 校验是否ip有手动设置过
         if (prev_ip == NULL && curr_ip != NULL) changed = 1;
         else if (prev_ip != NULL && curr_ip == NULL) changed = 1;
         else if (prev_ip && curr_ip && strcmp(prev_ip,curr_ip)) changed = 1;
 
         if (changed) {
+            // 此时需要使用最新的announceip进行更新替换
+            // 更新前值为当前值,备后续使用
             if (prev_ip) zfree(prev_ip);
             prev_ip = curr_ip;
 
@@ -3565,9 +3579,11 @@ void clusterCron(void) {
                  * duplicating the string. This way later we can check if
                  * the address really changed. */
                 prev_ip = zstrdup(prev_ip);
+                // 使用现值更新ip地址
                 strncpy(myself->ip,server.cluster_announce_ip,NET_IP_STR_LEN);
                 myself->ip[NET_IP_STR_LEN-1] = '\0';
             } else {
+                // 现值ip地址置为空,由系统来决定
                 myself->ip[0] = '\0'; /* Force autodetection. */
             }
         }
@@ -3577,6 +3593,7 @@ void clusterCron(void) {
      * not turned into a normal node is removed from the nodes. Usually it is
      * just the NODE_TIMEOUT value, but when NODE_TIMEOUT is too small we use
      * the value of 1 second. */
+    // 配置的握手超时数值,如果小于1s则使用1s
     handshake_timeout = server.cluster_node_timeout;
     if (handshake_timeout < 1000) handshake_timeout = 1000;
 
@@ -3586,20 +3603,25 @@ void clusterCron(void) {
     /* Check if we have disconnected nodes and re-establish the connection.
      * Also update a few stats while we are here, that can be used to make
      * better decisions in other part of the code. */
+    // 此处遍历集群所有的节点,根据节点的状态进行相
     di = dictGetSafeIterator(server.cluster->nodes);
+    // 本轮节点处于pfail状态的计数器清为0
     server.cluster->stats_pfail_nodes = 0;
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
         /* Not interested in reconnecting the link with myself or nodes
          * for which we have no address. */
+        // 不对本节点以及无地址的节点进行处理
         if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_NOADDR)) continue;
 
+        // 节点处于pfail状态时计数器增1
         if (node->flags & CLUSTER_NODE_PFAIL)
             server.cluster->stats_pfail_nodes++;
 
         /* A Node in HANDSHAKE state has a limited lifespan equal to the
          * configured node timeout. */
+        // 此节点处于握手状态,且已经超时则直接删除此节点
         if (nodeInHandshake(node) && now - node->ctime > handshake_timeout) {
             clusterDelNode(node);
             continue;
@@ -3618,6 +3640,7 @@ void clusterCron(void) {
                  * If node->ping_sent is zero, failure detection can't work,
                  * so we claim we actually sent a ping now (that will
                  * be really sent as soon as the link is obtained). */
+                // 此处相当于跟对方建立长连接失败,也相当于pingsent发送过一次
                 if (node->ping_sent == 0) node->ping_sent = mstime();
                 serverLog(LL_DEBUG, "Unable to connect to "
                     "Cluster Node [%s]:%d -> %s", node->ip,
@@ -3627,6 +3650,7 @@ void clusterCron(void) {
             link = createClusterLink(node);
             link->fd = fd;
             node->link = link;
+            // 握手完毕,注册读取事件
             aeCreateFileEvent(server.el,link->fd,AE_READABLE,
                     clusterReadHandler,link);
             /* Queue a PING in the new connection ASAP: this is crucial
@@ -3664,6 +3688,7 @@ void clusterCron(void) {
 
         /* Check a few random nodes and ping the one with the oldest
          * pong_received time. */
+        // 随机5次采样,取出其中最旧的pong_received, 之后对其进行ping
         for (j = 0; j < 5; j++) {
             de = dictGetRandomKey(server.cluster->nodes);
             clusterNode *this = dictGetVal(de);

@@ -155,7 +155,7 @@ typedef struct clusterNode {
                                     may be NULL even if the node is a slave
                                     if we don't have the master node in our
                                     tables. */
-    // 节点最新一次发送ping的时刻,单位毫秒
+    // 节点最新一次发送ping的时刻,单位毫秒, 在收到对应的pong后会对此值清为0
     mstime_t ping_sent;      /* Unix time we sent latest ping */
     // 节点最新一次接收pong的时刻,单位毫秒
     mstime_t pong_received;  /* Unix time we received the pong */
@@ -313,7 +313,7 @@ typedef struct {
     uint16_t port;      /* TCP base port number. */
     // 消息类别
     uint16_t type;      /* Message type */
-    // 消息body个数
+    // 消息body个数,只对ping pong meet类型有效
     uint16_t count;     /* Only used for some kind of messages. */
     // 发送此消息的节点纪元
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */

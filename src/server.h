@@ -1300,6 +1300,7 @@ struct redisServer {
                                           there is at least an uncovered slot.*/
     int cluster_slave_no_failover;  /* Prevent slave from starting a failover
                                        if the master is in failure state. */
+    // cluster 手动指定本节点的ip地址
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
     // cluster集群模式下 redis单节点的端口号, 有最高优先级,会压盖自身生成的端口号
     int cluster_announce_port;     /* base port to announce on cluster bus. */
