@@ -692,10 +692,12 @@ typedef struct multiState {
  * The fields used depend on client->btype. */
 typedef struct blockingState {
     /* Generic fields. */
+    // 阻塞的超时时间参数
     mstime_t timeout;       /* Blocking operation timeout. If UNIX current time
                              * is > timeout then the operation timed out. */
 
     /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM */
+    // 存放阻塞操作锁对应的key
     dict *keys;             /* The keys we are waiting to terminate a blocking
                              * operation such as BLPOP or XREAD. Or NULL. */
     robj *target;           /* The key that should receive the element,
@@ -787,6 +789,7 @@ typedef struct client {
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     multiState mstate;      /* MULTI/EXEC state */
     int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
+    // 当前client里的相关阻塞命令所涉及的数据
     blockingState bpop;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
@@ -1122,6 +1125,7 @@ struct redisServer {
     // 记录当前以aof方式保存数据时的aof文件句柄
     int aof_fd;       /* File descriptor of currently selected AOF file */
     int aof_selected_db; /* Currently selected DB in AOF */
+    // aof模式下最近一次延迟写标记字段,为0表示之前没有延迟写
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
     // 最新执行刷盘aof的时刻
     time_t aof_last_fsync;            /* UNIX time of last fsync() */

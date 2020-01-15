@@ -527,6 +527,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         }
 
         /* If the key already exists in the dictionary ignore it. */
+        // 对于此key已经在阻塞中的情况下,跳过不予执行 
         if (dictAdd(c->bpop.keys,keys[j],key_data) != DICT_OK) {
             zfree(key_data);
             continue;
@@ -534,6 +535,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         incrRefCount(keys[j]);
 
         /* And in the other "side", to map keys -> clients */
+        // 从服务端找到此key对应的阻塞式client链表,如果无,则创建一个新链表
         de = dictFind(c->db->blocking_keys,keys[j]);
         if (de == NULL) {
             int retval;
@@ -546,6 +548,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         } else {
             l = dictGetVal(de);
         }
+        // 将当前client加入到此db里的指定key的阻塞client链表中
         listAddNodeTail(l,c);
     }
     blockClient(c,btype);
@@ -553,28 +556,33 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
 
 /* Unblock a client that's waiting in a blocking operation such as BLPOP.
  * You should never call this function directly, but unblockClient() instead. */
+// 将指定client里所有涉及到阻塞的key解除阻塞
 void unblockClientWaitingData(client *c) {
     dictEntry *de;
     dictIterator *di;
     list *l;
 
     serverAssertWithInfo(c,NULL,dictSize(c->bpop.keys) != 0);
+    // 遍历当前client所涉及到的阻塞key链表
     di = dictGetIterator(c->bpop.keys);
     /* The client may wait for multiple keys, so unblock it for every key. */
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
 
         /* Remove this client from the list of clients waiting for this key. */
+        // 从db中的指定阻塞key中移除当前client
         l = dictFetchValue(c->db->blocking_keys,key);
         serverAssertWithInfo(c,key,l != NULL);
         listDelNode(l,listSearchKey(l,c));
         /* If the list is empty we need to remove it to avoid wasting memory */
+        // 如果db中的指定阻塞key对应的链表已全空,则将此key从阻塞字典里移除
         if (listLength(l) == 0)
             dictDelete(c->db->blocking_keys,key);
     }
     dictReleaseIterator(di);
 
     /* Cleanup the client structure */
+    // 将该client里记录的阻塞式key全部清空
     dictEmpty(c->bpop.keys,NULL);
     if (c->bpop.target) {
         decrRefCount(c->bpop.target);
@@ -595,16 +603,20 @@ void unblockClientWaitingData(client *c) {
  * made by a script or in the context of MULTI/EXEC.
  *
  * The list will be finally processed by handleClientsBlockedOnLists() */
+// 通知指定的key已经ready
 void signalKeyAsReady(redisDb *db, robj *key) {
     readyList *rl;
 
     /* No clients blocking for this key? No need to queue it. */
+    // 先检查当前db中是否有此key在阻塞中
     if (dictFind(db->blocking_keys,key) == NULL) return;
 
     /* Key was already signaled? No need to queue it again. */
+    // 检查当前db中是否有此key已经处于ready中
     if (dictFind(db->ready_keys,key) != NULL) return;
 
     /* Ok, we need to queue this key into server.ready_keys. */
+    // 将此key添加到全局ready链表的尾部
     rl = zmalloc(sizeof(*rl));
     rl->key = key;
     rl->db = db;
@@ -615,6 +627,7 @@ void signalKeyAsReady(redisDb *db, robj *key) {
      * to avoid adding it multiple times into a list with a simple O(1)
      * check. */
     incrRefCount(key);
+    // 将此key添加到指定db的ready字典中,主要是用于后续的排重操作
     serverAssert(dictAdd(db->ready_keys,key,NULL) == DICT_OK);
 }
 

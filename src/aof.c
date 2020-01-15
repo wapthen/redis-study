@@ -107,7 +107,7 @@ unsigned long aofRewriteBufferSize(void) {
 /**
  * 用于主进程将块链中累积的命令数据逐一的发送给子进程
  * 本函数会一边发送数据一边删除已发送的块节点，如正常结束，则最后块链list无任何节点数据。
- * 主子进程直接通过管道方式进行数据交互
+ * 主子进程直接通过无名管道方式进行数据交互
  */
 void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     listNode *ln;
@@ -418,7 +418,7 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
  * 默认刷盘方式：直接write aof文件，不调用任何刷盘函数，交由操作系统默认刷盘；
  * 每笔刷盘：在write aof文件后，直接调用fdatasync刷盘，此操作是阻塞式；
  * 每秒刷盘：先确认当前是否已有后台线程在执行任何刷盘任务
- *              如有而且延时在2s以内则提前结束，不执行写文件与落盘；
+ *              如有而且前后时间差在2s以内则提前结束，不执行写文件与落盘；
  *              如无或者前后两次超过2s，则可以写aof文件后，之后在无任何句柄执行异步刷盘任务的情况下才会每秒提交一次刷盘异步任务供后台线程执行刷盘任务
  *
  * 对于force为1时，表示无论是否有后台刷盘任务，本次只要有待写数据均执行写文件操作
@@ -497,8 +497,10 @@ void flushAppendOnlyFile(int force) {
     latencyAddSampleIfNeeded("aof-write",latency);
 
     /* We performed the write so reset the postponed flush sentinel to zero. */
+    // 表示已经完成写文件,需将延迟写标记置为0
     server.aof_flush_postponed_start = 0;
 
+    // 没有完全将aof_buf中累积的数据写入磁盘文件
     if (nwritten != (ssize_t)sdslen(server.aof_buf)) {
         static time_t last_write_error_log = 0;
         int can_log = 0;

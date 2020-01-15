@@ -404,9 +404,9 @@ void listRotate(list *list) {
     list->tail = tail->prev;
     list->tail->next = NULL;
     /* Move it as head */
-    list->head->prev = tail;
     tail->prev = NULL;
     tail->next = list->head;
+    list->head->prev = tail;
     list->head = tail;
 }
 
