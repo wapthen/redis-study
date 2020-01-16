@@ -1176,7 +1176,7 @@ struct redisServer {
     /* Pipe and data structures for child -> parent info sharing. */
     // 用于子进程向父进程发送子进程的信息,主要是将子进程运行期间涉及到的cow内存大小发送给主进程
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
-    // 汇总子进程的运行信息
+    // 汇总子进程的运行信息, 注意父子进程中均有此结构体内存,只不过用途不同,子进程中的此内存用于缓存待发送数据,父进程此内存用于缓存接收到的数据
     struct {
         int process_type;           /* AOF or RDB child? */
         size_t cow_size;            /* Copy on write size. */

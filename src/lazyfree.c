@@ -3,6 +3,7 @@
 #include "atomicvar.h"
 #include "cluster.h"
 
+// 待异步释放的对象计数器:提交任务时数值增加,在后台线程实际释放对象后数值减少
 static size_t lazyfree_objects = 0;
 pthread_mutex_t lazyfree_objects_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -70,8 +71,8 @@ int dbAsyncDelete(redisDb *db, robj *key) {
      * the object synchronously. */
     // 从主字典里找到此key，并从字典中摘除但不释放内存，只是获取节点指针
     dictEntry *de = dictUnlink(db->dict,key->ptr);
+    // 已找到key对应的节点指针
     if (de) {
-        // 已找到key对应的节点指针
         robj *val = dictGetVal(de);
         // 估算要释放此value对象的操作次数
         size_t free_effort = lazyfreeGetFreeEffort(val);
@@ -110,12 +111,15 @@ int dbAsyncDelete(redisDb *db, robj *key) {
 }
 
 /* Free an object, if the object is huge enough, free it in async way. */
+// 可能采用异步方式释放对象内存
 void freeObjAsync(robj *o) {
     size_t free_effort = lazyfreeGetFreeEffort(o);
     if (free_effort > LAZYFREE_THRESHOLD && o->refcount == 1) {
+        // 异步释放对象
         atomicIncr(lazyfree_objects,1);
         bioCreateBackgroundJob(BIO_LAZY_FREE,o,NULL,NULL);
     } else {
+        // 引用计数-1
         decrRefCount(o);
     }
 }
@@ -123,28 +127,37 @@ void freeObjAsync(robj *o) {
 /* Empty a Redis DB asynchronously. What the function does actually is to
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
+// 异步清空db库:主字典与过期字典
 void emptyDbAsync(redisDb *db) {
     dict *oldht1 = db->dict, *oldht2 = db->expires;
+    // 创建两个新的字典
     db->dict = dictCreate(&dbDictType,NULL);
     db->expires = dictCreate(&keyptrDictType,NULL);
+    // 只记录主字典中的待删除元素个数,无需记录过期字典里的元素个数
     atomicIncr(lazyfree_objects,dictSize(oldht1));
+    // 旧的字典进入线程异步清除
     bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,oldht1,oldht2);
 }
 
 /* Empty the slots-keys map of Redis CLuster by creating a new empty one
  * and scheduiling the old for lazy freeing. */
+// 异步清空slot-->key的映射关系
 void slotToKeyFlushAsync(void) {
     rax *old = server.cluster->slots_to_keys;
-
+    // 构造一个新的
     server.cluster->slots_to_keys = raxNew();
+    // 同时清空槽位计数器
     memset(server.cluster->slots_keys_count,0,
            sizeof(server.cluster->slots_keys_count));
+    // 记录待异步释放的对象个数
     atomicIncr(lazyfree_objects,old->numele);
+    // 提交异步清除内存任务
     bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,NULL,old);
 }
 
 /* Release objects from the lazyfree thread. It's just decrRefCount()
  * updating the count of objects to release. */
+// 供后台线程调用,释放对象
 void lazyfreeFreeObjectFromBioThread(robj *o) {
     decrRefCount(o);
     atomicDecr(lazyfree_objects,1);
@@ -155,6 +168,7 @@ void lazyfreeFreeObjectFromBioThread(robj *o) {
  * when the database was logically deleted. 'sl' is a skiplist used by
  * Redis Cluster in order to take the hash slots -> keys mapping. This
  * may be NULL if Redis Cluster is disabled. */
+// 供后台线程调用,释放db里的主字典与过期字典
 void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2) {
     size_t numkeys = dictSize(ht1);
     dictRelease(ht1);
@@ -164,6 +178,7 @@ void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2) {
 
 /* Release the skiplist mapping Redis Cluster keys to slots in the
  * lazyfree thread. */
+// 供后台线程调用,释放rax类型的数据:目前只有slot-->key的映射关系数据
 void lazyfreeFreeSlotsMapFromBioThread(rax *rt) {
     size_t len = rt->numele;
     raxFree(rt);

@@ -131,7 +131,7 @@ void latencyAddSample(char *event, mstime_t latency) {
     ts->samples[ts->idx].latency = latency;
 
     ts->idx++;
-    if (ts->idx == LATENCY_TS_LEN) ts->idx = 0;
+    if (ts->idx == LATENCY_TS_LEN) ts->idx = 0;// 从头循环压盖数组元素
 }
 
 /* Reset data for the specified event, or all the events data if 'event' is
@@ -209,6 +209,7 @@ void analyzeLatencyForEvent(char *event, struct latencyStats *ls) {
     }
 
     /* Second pass, compute MAD. */
+    // 计算 平均离差
     sum = 0;
     for (j = 0; j < LATENCY_TS_LEN; j++) {
         int64_t delta;

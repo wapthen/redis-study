@@ -446,7 +446,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
                     zfree(he);
                 }
                 d->ht[table].used--;
-                // 返回节点指针，注意此时的节点指针数值可能是悬指针
+                // 返回节点指针，注意此时的节点指针数值可能是悬指针,因为nofree为0时已将he指向的内存释放了
                 return he;
             }
             prevHe = he;
