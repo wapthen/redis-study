@@ -28,6 +28,23 @@
  */
 
 #include <time.h>
+// localtime_r内部实现是有线程锁的参与,而线程与fork进程结合时会有些许问题
+// 子进程会继承主进程中的各种线程锁, 但是子进程却只有调用fork函数的当前线程,主进程里的其他线程均不会存在于子进程中. 
+// 这可能会出现:某一个线程在调用localtime_r函数持有线程锁,另一个线程执行fork,导致子进程中持有线程锁,但是却无原始持有这把锁的线程,从而导致死锁
+/**
+ * from apue: thread and fork
+ * By inheriting a copy of the address space, the child process also inherits the state of every
+ * mutex, reader–writer lock, and condition variable from the parent process.
+ * Inside the child process, only one thread exists. It is made from a copy of the thread
+that called fork in the parent. If the threads in the parent process hold any locks, the
+same locks will also be held in the child process. The problem is that the child process
+doesn’t contain copies of the threads holding the locks, so there is no way for the child
+to know which locks are held and need to be unlocked.
+This problem can be avoided if the child calls one of the exec functions directly
+after returning from fork. In this case, the old address space is discarded, so the lock
+state doesn’t matter.
+*/
+
 
 /* This is a safe version of localtime() which contains no locks and is
  * fork() friendly. Even the _r version of localtime() cannot be used safely
