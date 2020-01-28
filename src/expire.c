@@ -53,6 +53,7 @@
  * to the function to avoid too many gettimeofday() syscalls. */
 // 检查主字典里的expire字典里的de节点元素 相对于now时刻是否超时，如果超时则对其进行移除操作并返回1
 // 如果没有超时，则返回0
+
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     // 参数de其实是expire字典里的元素，所以对应的value存储的是绝对的过期时刻
     long long t = dictGetSignedIntegerVal(de);
