@@ -99,6 +99,7 @@ err:
 }
 
 /* Return the current set size. */
+// 获取注册器的总容量
 int aeGetSetSize(aeEventLoop *eventLoop) {
     return eventLoop->setsize;
 }
@@ -128,6 +129,7 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
 
     /* Make sure that if we created new slots, they are initialized with
      * an AE_NONE mask. */
+    // 对新开辟的空间进行初始化赋值, 此处可以使用maxfd+1作为起始下标
     for (i = eventLoop->maxfd+1; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
     return AE_OK;
@@ -164,6 +166,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
     fe->mask |= mask;
+    // 针对入参的mask类别,将回调函数添加到合适的注册器内部
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
     fe->clientData = clientData;
@@ -391,10 +394,11 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
         {
+            //此处表示需要执行此定时任务
             int retval;
 
             id = te->id;
-            // 返回的数据-1表示无需再次执行；否则表示在多少毫秒后再次执行
+            // 返回的数据-1表示无需再次执行；否则表示多少毫秒后再次执行
             retval = te->timeProc(eventLoop, id, te->clientData);
             processed++;
             if (retval != AE_NOMORE) {
@@ -512,7 +516,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * before replying to a client. */
             /**
              * 通常情况下，对于同一个文件句柄，在处于同时可读可写状态时，会先处理读事件再处理写事件。
-             * 这样会保证我们在尽可能快的将读事件得到的各种命令执行后，在处理本轮写事件时将结果一并下发返回给客户。
+             * 这样会保证我们在尽可能快的将读事件得到的各种命令执行后，再处理本轮写事件时将结果一并下发返回给客户。
              * 但是上述机制，又会导致 在处理写命令时，未及时将命令刷入本地磁盘就会提前将应答回复给客户的情况。
              * 所以引入了AE_BARRIER标记，对于同一个文件句柄已执行过"读回调"函数的情况下，本轮不执行"写回调"函数。
              */

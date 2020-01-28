@@ -87,6 +87,7 @@ void aofRewriteBufferReset(void) {
 /**
  * 计算整个块链目前已用字节数
  * 采用从头遍历整个块链，对每个块链中的已用字节数字段进行加和
+ * 时间复杂度为O(N)
  */
 unsigned long aofRewriteBufferSize(void) {
     listNode *ln;

@@ -33,17 +33,27 @@
 
 /* Node, List, and Iterator are the only data structures used currently. */
 
+/**
+ * 链表内部的节点元素
+ */
 typedef struct listNode {
     struct listNode *prev;//前向指针
     struct listNode *next;//后向指针
     void *value;//实际的数据指针
 } listNode;
 
+/**
+ * 链表迭代器
+ */
 typedef struct listIter {
     listNode *next;//保存迭代器下一个元素的指针
     int direction;//方向，取值范围:0从头到尾；1从尾到头
 } listIter;
 
+/**
+ * 双向链表对象
+ * 并且有快速的头尾节点指针
+ */
 typedef struct list {
     listNode *head;//指向链表的第一个节点
     listNode *tail;//指向链表的最后一个节点

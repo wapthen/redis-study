@@ -55,6 +55,7 @@
 #define AE_CALL_AFTER_SLEEP 8
 
 #define AE_NOMORE -1
+// 时间事件删除标记,时间事件队列采用lazy打标记删除方式,此数据会在周期执行的processTimeEvents函数中进行删除
 #define AE_DELETED_EVENT_ID -1
 
 /* Macros */
@@ -97,7 +98,7 @@ typedef struct aeFiredEvent {
 
 /* State of an event based program */
 typedef struct aeEventLoop {
-    // 跟踪记录全局的已注册文件句柄最大值
+    // 跟踪记录全局的已注册文件句柄最大值,即目前处于使用中的最大fd数值
     int maxfd;   /* highest file descriptor currently registered */
     // 本结构体events数组容量
     int setsize; /* max number of file descriptors tracked */

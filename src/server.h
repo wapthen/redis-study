@@ -759,6 +759,7 @@ typedef struct client {
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
+    //准备发回的数据应答链表
     list *reply;            /* List of reply objects to send to the client. */
     //在reply list中保存应答消息的总字节数
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
@@ -1110,7 +1111,7 @@ struct redisServer {
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     // aof_rewrite full, current file size
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
-    // 已成功执行写aof文件中的字节数, 用于写失败回滚文件使用
+    // 已成功执行写aof文件中的字节数, 用于写失败回滚文件使用,未刷盘
     off_t aof_current_size;         /* AOF current size. */
     // 已执行刷盘确保可靠的保存到aof文件中的字节数
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
