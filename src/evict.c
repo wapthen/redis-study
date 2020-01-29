@@ -53,9 +53,9 @@
 #define EVPOOL_CACHED_SDS_SIZE 255
 struct evictionPoolEntry {
     unsigned long long idle;    /* Object idle time (inverse frequency for LFU) */
-    // 指针，当长度大于预分配的空间时，指向一块单独创建的新内存；当key值长度小于预分配cache容量时，则跟cached指向同一块复用内存
+    // 指针，当key值长度大于预分配的cache容量时，指向一块单独创建的新内存；当key值长度小于预分配cache容量时，则跟cached指向同一块复用内存
     sds key;                    /* Key name. */
-    // cached表示预分配的sds存储空间，避免对pool里的数据进行拷贝移位操作时频繁的分配释放内存,
+    // 指针××××指向一块预分配大小的数组×××××，方便后续复用，避免对pool里的数据进行拷贝移位操作时频繁的分配释放内存,
     // 同时每次对evictionPoolEntry的移位拷贝只需要操作很少的字节，无需迁移实际的数据
     sds cached;                 /* Cached SDS object for key name. */
     int dbid;                   /* Key DB number. */
@@ -271,7 +271,6 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
             pool[k].key = sdsdup(key);
         } else {
             // 将key值镜像到cache里，之后key cache同指向一块实际内存
-            // 此处的klen+1无问题,因为预分配的cached里已经单独+1
             memcpy(pool[k].cached,key,klen+1);
             sdssetlen(pool[k].cached,klen);
             pool[k].key = pool[k].cached;
@@ -428,7 +427,7 @@ size_t freeMemoryGetNotCountedMemory(void) {
 // 获取目前内存使用量情况，相关数据保存在入参指针指向的内存里。
 // 返回值ok表示当前内存使用量在最大内存限值以下，安全；
 // 返回error表示当前内存使用量超过最大内存限值
-// 用于子节点通信+aofbuf+块链+应答数据 内存属于临时消耗，不计入logical中
+// 用于子节点通信+aofbuf+块链三种内存属于临时消耗，不计入logical中
 int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *level) {
     size_t mem_reported, mem_used, mem_tofree;
 
