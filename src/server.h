@@ -231,6 +231,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
 #define CLIENT_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
 #define CLIENT_DIRTY_CAS (1<<5) /* Watched keys modified. EXEC will fail. */
+// 在发送完毕应答数据后立马主动close client
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
 #define CLIENT_UNBLOCKED (1<<7) /* This client was unblocked and is stored in
                                   server.unblocked_clients */
@@ -663,8 +664,11 @@ typedef struct clientReplyBlock {
 typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
+    // 当前库中处于阻塞状态的key,对应的value是client list
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
+    // 当前库中已经由阻塞变为待处理状态的key
     dict *ready_keys;           /* Blocked keys that received a PUSH */
+
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
@@ -731,6 +735,7 @@ typedef struct blockingState {
  * also called ready_keys in every structure representing a Redis database,
  * where we make sure to remember if a given key was already added in the
  * server.ready_keys list. */
+// 对应于全局的ready_keys链表节点使用
 typedef struct readyList {
     redisDb *db;
     robj *key;
@@ -1105,7 +1110,7 @@ struct redisServer {
     int aof_fsync;                  /* Kind of fsync() policy */
     // 记录aof文件名
     char *aof_filename;             /* Name of the AOF file */
-    // 标记位，为1表示在有子进程在做rdb 或者 aof保存时，不执行刷盘操作
+    // 标记位，为1表示在有后台子进程在做rdb 或者 aof保存时，不执行刷盘操作
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
@@ -1127,6 +1132,7 @@ struct redisServer {
     int aof_fd;       /* File descriptor of currently selected AOF file */
     int aof_selected_db; /* Currently selected DB in AOF */
     // aof模式下最近一次延迟写标记字段,为0表示之前没有延迟写
+    // 对于linux里的write函数可能会被后台正在执行中的fsync阻塞,所以当刷盘策略为每秒时,对于后台有fsync执行时,我们会延迟本次持久化
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
     // 最新执行刷盘aof的时刻
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
@@ -1138,6 +1144,7 @@ struct redisServer {
     // 在子进程进行rewrite aof期间对于刷盘策略控制,如果开启,则每满REDIS_AUTOSYNC_BYTES 32MB进行一次刷盘
     int aof_rewrite_incremental_fsync;/* fsync incrementally while aof rewriting? */
     int rdb_save_incremental_fsync;   /* fsync incrementally while rdb saving? */
+    // 记录主进程最新一次aof write aof_buf是否成功
     int aof_last_write_status;      /* C_OK or C_ERR */
     // 记录aof write失败时的errno
     int aof_last_write_errno;       /* Valid if aof_last_write_status is ERR */
@@ -1145,12 +1152,15 @@ struct redisServer {
     // 是否开启在rewrite aof时先以rdb的形式保存磁盘数据.
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
     /* AOF pipes used to communicate between parent and child during rewrite. */
+    // 非阻塞模式
     int aof_pipe_write_data_to_child;
+    // 非阻塞模式
     int aof_pipe_read_data_from_parent;
     int aof_pipe_write_ack_to_parent;
     int aof_pipe_read_ack_from_child;
     int aof_pipe_write_ack_to_child;
     int aof_pipe_read_ack_from_parent;
+    // 在aof时,主进程发送diff数据给子进程是否停止的标记
     int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
                                       to child process. */
     // 子进程里用于接收主进程发送的diff命令数据
@@ -1261,7 +1271,9 @@ struct redisServer {
     /* Blocked clients */
     unsigned int blocked_clients;   /* # of clients executing a blocking cmd.*/
     unsigned int blocked_clients_by_type[BLOCKED_NUM];
+    // 处于准备解除阻塞的client链表
     list *unblocked_clients; /* list of clients to unblock before next loop */
+    // 全局由之前阻塞状态变为待处理状态的key链表
     list *ready_keys;        /* List of readyList structures for BLPOP & co */
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
@@ -1301,8 +1313,10 @@ struct redisServer {
     struct clusterState *cluster;  /* State of the cluster */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
+    // 确认所有的slot均有节点负责,否则将集群状态置为down
     int cluster_require_full_coverage; /* If true, put the cluster down if
                                           there is at least an uncovered slot.*/
+    // 在主节点异常时是否阻止备节点进行故障迁移
     int cluster_slave_no_failover;  /* Prevent slave from starting a failover
                                        if the master is in failure state. */
     // cluster 手动指定本节点的ip地址
@@ -1339,7 +1353,9 @@ struct redisServer {
     int lazyfree_lazy_expire;// 非0表示开启异步释放过期数据的机制；0表示同步阻塞式的释放过期数据
     int lazyfree_lazy_server_del;
     /* Latency monitor */
+    // 延迟阈值,为0表示关闭延迟监控
     long long latency_monitor_threshold;
+    // 延迟监控字典,key为监控事件,value是一个定长的数组,即对于同一个事件可以采样多次,每次的数据按照采样时刻升序存放
     dict *latency_events;//延迟事件字典
     /* Assert & bug reporting */
     const char *assert_failed;

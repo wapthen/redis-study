@@ -61,7 +61,7 @@ void aofClosePipes(void);
 /**
  * 在有后台子进程进行重写aof文件时，主进程使用如下结构体缓存主进程接收客户端的命令，
  * 以备在子进程rewrite完毕后，将缓存中的命令追加到新aof文件的尾部。
- * 即：此结构体是缓存fork之后的来自客户的新命令
+ * 即：此结构体是fork之后主进程缓存执行后的客户的新命令
  * 整体机制采用块链的方式，主体采用list，每个节点为aofrwblock结构体，此aofrwblock里是一块连续的内存，同时记录着已用字节数，空闲字节数
  */
 typedef struct aofrwblock {
@@ -413,6 +413,9 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
  * redis会确保，在回复客户应答数据之前，将此用户的已执行命令写入aof文件中。
  * 也就是说，会将用户的操作命令落盘持久化之后，再将回复数据发送给用户。
  * 关于落盘持久化，分为两步：写文件；刷盘。只有刷盘成功，才表示真正的持久化。
+ * 
+ * 对于linux里的write函数可能会被后台正在执行中的fsync阻塞,所以当刷盘策略为每秒时,对于后台有fsync执行时,我们会延迟本次持久化
+ * 但是对于force为1的场景,那么正常执行落盘刷盘,不考虑后台fsync的影响
  *
  * 而刷盘策略分为：系统默认刷盘方式；每笔刷盘；每秒刷盘；
  *
@@ -445,13 +448,16 @@ void flushAppendOnlyFile(int force) {
             !(sync_in_progress = aofFsyncInProgress())) {
             goto try_fsync;
         } else {
+        // 本次无data需要落盘刷盘
             return;
         }
     }
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
+        // 后台待执行的刷盘任务数
         sync_in_progress = aofFsyncInProgress();
 
+    // 非强制的每秒刷盘模式下,对于有后台待执行的fsync,因可能会阻塞write函数,所以我们会延迟2s执行落盘刷盘
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC && !force) {
         /* With this append fsync policy we do background fsyncing.
          * If the fsync is still in progress we can try to delay
@@ -498,10 +504,10 @@ void flushAppendOnlyFile(int force) {
     latencyAddSampleIfNeeded("aof-write",latency);
 
     /* We performed the write so reset the postponed flush sentinel to zero. */
-    // 表示已经完成写文件,需将延迟写标记置为0
+    // 表示已经完成落盘写文件,需将延迟写标记置为0
     server.aof_flush_postponed_start = 0;
 
-    // 没有完全将aof_buf中累积的数据写入磁盘文件
+    // 没有完全将aof_buf中累积的数据写入磁盘文件, 尝试将本次写入的所有数据截断回滚,如果回滚失败,则已经部分落盘的数据就算成功,执行后续的刷盘策略
     if (nwritten != (ssize_t)sdslen(server.aof_buf)) {
         static time_t last_write_error_log = 0;
         int can_log = 0;
@@ -530,6 +536,7 @@ void flushAppendOnlyFile(int force) {
                                        (long long)sdslen(server.aof_buf));
             }
 
+            // 此时的aof_current_size依旧是旧数据,还未加上本次已经落盘的数据长度
             if (ftruncate(server.aof_fd, server.aof_current_size) == -1) {
                 if (can_log) {
                     serverLog(LL_WARNING, "Could not remove short write "
@@ -579,7 +586,7 @@ void flushAppendOnlyFile(int force) {
             server.aof_last_write_status = C_OK;
         }
     }
-    // 全部aof buffer 已经写入文件中
+    // 此时全部aof buffer 已经写入文件中, 将落盘字节数增加
     server.aof_current_size += nwritten;
 
     /* Re-use AOF buffer when it is small enough. The maximum comes from the
@@ -612,12 +619,12 @@ try_fsync:
         server.aof_last_fsync = server.unixtime;
     } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                 server.unixtime > server.aof_last_fsync)) {
+        // 目前执行fsync的参数只有此文件句柄fd,所以对于已经处于等待刷盘中的fd,后续再有新增待刷盘的数据,无需重复提交刷盘任务.
         // 每秒刷盘下，对于已经有正在执行刷盘fd任务时，不提交当前fd的刷盘任务
         if (!sync_in_progress) {
             aof_background_fsync(server.aof_fd);
             server.aof_fsync_offset = server.aof_current_size;
         }
-        // todo 下面的代码是不是有问题？应该在执行提交fsync任务时才更新吧？？
         server.aof_last_fsync = server.unixtime;
     }
 }

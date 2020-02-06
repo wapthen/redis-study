@@ -273,15 +273,18 @@ void handleClientsBlockedOnKeys(void) {
 
             /* First of all remove this key from db->ready_keys so that
              * we can safely call signalKeyAsReady() against this key. */
+            // 当前待处理的key从记录链表中移除
             dictDelete(rl->db->ready_keys,rl->key);
 
             /* Serve clients blocked on list key. */
+            // 从主字典里查找待处理的key对应的value节点
             robj *o = lookupKeyWrite(rl->db,rl->key);
             if (o != NULL && o->type == OBJ_LIST) {
                 dictEntry *de;
 
                 /* We serve clients in the same order they blocked for
                  * this key, from the first blocked to the last. */
+                // 找到之前因key而阻塞的client链表
                 de = dictFind(rl->db->blocking_keys,rl->key);
                 if (de) {
                     list *clients = dictGetVal(de);
@@ -290,10 +293,11 @@ void handleClientsBlockedOnKeys(void) {
                     while(numclients--) {
                         listNode *clientnode = listFirst(clients);
                         client *receiver = clientnode->value;
-
+                        // 当前只处理 阻塞式链表 的client, 对于其他类型交由后续分支逻辑处理
                         if (receiver->btype != BLOCKED_LIST) {
                             /* Put at the tail, so that at the next call
                              * we'll not run into it again. */
+                            // 将当前client移到链表的尾部
                             listDelNode(clients,clientnode);
                             listAddNodeTail(clients,receiver);
                             continue;

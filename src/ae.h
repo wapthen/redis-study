@@ -78,9 +78,11 @@ typedef struct aeFileEvent {
 } aeFileEvent;
 
 /* Time event structure */
+// 记录时间事件的双向链表节点
 typedef struct aeTimeEvent {
+    // 定时任务标识id, 递增, 为-1时标记删除, 之后在每轮一次性实际删除
     long long id; /* time event identifier. */
-    // 定时任务的绝对时间
+    // 定时任务执行的绝对时间
     long when_sec; /* seconds */
     long when_ms; /* milliseconds */
     aeTimeProc *timeProc;

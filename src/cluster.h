@@ -66,6 +66,7 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
 // 主节点有备节点,处于可以数据复制操作的状态
 #define CLUSTER_NODE_MIGRATE_TO 256 /* Master eligible for replica migration. */
+// 备节点不允许进行故障迁移
 #define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 

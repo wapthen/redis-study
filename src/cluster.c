@@ -173,7 +173,9 @@ int clusterLoadConfig(char *filename) {
         /* Address and port */
         if ((p = strrchr(argv[1],':')) == NULL) goto fmterr;
         *p = '\0';
+        // 确保将argv[1]里的末尾空字符也拷贝到目标缓冲区里
         memcpy(n->ip,argv[1],strlen(argv[1])+1);
+        // 开始切割端口号字段
         char *port = p+1;
         char *busp = strchr(port,'@');
         if (busp) {
@@ -184,6 +186,7 @@ int clusterLoadConfig(char *filename) {
         /* In older versions of nodes.conf the "@busport" part is missing.
          * In this case we set it to the default offset of 10000 from the
          * base port. */
+        // 获取集群bus通信端口
         n->cport = busp ? atoi(busp) : n->port + CLUSTER_PORT_INCR;
 
         /* Parse flags */
@@ -221,6 +224,7 @@ int clusterLoadConfig(char *filename) {
         /* Get master if any. Set the master and populate master's
          * slave list. */
         if (argv[3][0] != '-') {
+            // 此位置存放的是当前节点对应的主节点name名称
             master = clusterLookupNode(argv[3]);
             if (!master) {
                 master = createClusterNode(argv[3],0);
@@ -388,8 +392,18 @@ void clusterSaveConfigOrDie(int do_fsync) {
  *
  * On success C_OK is returned, otherwise an error is logged and
  * the function returns C_ERR to signal a lock was not acquired. */
+/**
+ * whenever a descriptor is closed, any locks on the file referenced by that
+ * descriptor for that process are released. This means that if we make the calls
+ * fd1 = open(pathname, ...);
+ * read_lock(fd1, ...);
+ * fd2 = dup(fd1);
+ * close(fd2);
+ * after the close(fd2), the lock that was obtained on fd1 is released. 
+ */
 // 打开指定的配置文件,并使用flock函数锁住整个文件,并有意的泄露文件句柄,这样就可以一直持有文件锁直至进程终结
-// 避免同机不同的redia进程使用同一份磁盘上的配置文件
+// 因为在close文件,那么当前进程在此文件上加的所有文件锁均会被系统自动释放.
+// 避免同机不同的redis进程使用同一份磁盘上的配置文件
 int clusterLockConfig(char *filename) {
 /* flock() does not exist on Solaris
  * and a fcntl-based solution won't help, as we constantly re-open that file,
@@ -2894,6 +2908,7 @@ void clusterPropagatePublish(robj *channel, robj *message) {
  *
  * Note that we send the failover request to everybody, master and slave nodes,
  * but only the masters are supposed to reply to our query. */
+// 发送FAILOVER_AUTH_REQUEST消息给集群里所有的节点
 void clusterRequestFailoverAuth(void) {
     unsigned char buf[sizeof(clusterMsg)];
     clusterMsg *hdr = (clusterMsg*) buf;
@@ -2910,6 +2925,7 @@ void clusterRequestFailoverAuth(void) {
 }
 
 /* Send a FAILOVER_AUTH_ACK message to the specified node. */
+// 发送FAILOVER_AUTH_ACK响应消息给对方节点
 void clusterSendFailoverAuth(clusterNode *node) {
     unsigned char buf[sizeof(clusterMsg)];
     clusterMsg *hdr = (clusterMsg*) buf;
@@ -2923,6 +2939,7 @@ void clusterSendFailoverAuth(clusterNode *node) {
 }
 
 /* Send a MFSTART message to the specified node. */
+// 发送MFSTART消息给指定节点
 void clusterSendMFStart(clusterNode *node) {
     unsigned char buf[sizeof(clusterMsg)];
     clusterMsg *hdr = (clusterMsg*) buf;
@@ -3090,6 +3107,7 @@ int clusterGetSlaveRank(void) {
  * which is one of the integer macros CLUSTER_CANT_FAILOVER_*.
  *
  * The function is guaranteed to be called only if 'myself' is a slave. */
+// 记录备节点不能进行故障迁移的原因
 void clusterLogCantFailover(int reason) {
     char *msg;
     static time_t lastlog_time = 0;
@@ -3184,6 +3202,7 @@ void clusterHandleSlaveFailover(void) {
                           server.cluster->mf_can_start;
     mstime_t auth_timeout, auth_retry_time;
 
+    // 准备执行故障迁移工作,所以清除todo 标记里的对应的标记
     server.cluster->todo_before_sleep &= ~CLUSTER_TODO_HANDLE_FAILOVER;
 
     /* Compute the failover timeout (the max time we have to send votes
@@ -3204,6 +3223,13 @@ void clusterHandleSlaveFailover(void) {
      * 3) We don't have the no failover configuration set, and this is
      *    not a manual failover.
      * 4) It is serving slots. */
+    /**
+     * 对于如下场景无需进行故障迁移:
+     * 1. 当前节点为主节点
+     * 2. 当前节点对应的主节点正常 且 没有手工触发迁移
+     * 3. 当前配置备节点不进行故障迁移 且 没有手工触发迁移
+     * 4. 当前节点对应的主节点负责的slot为空
+     */
     if (nodeIsMaster(myself) ||
         myself->slaveof == NULL ||
         (!nodeFailed(myself->slaveof) && !manual_failover) ||
@@ -4021,12 +4047,14 @@ void clusterCloseAllSlots(void) {
 #define CLUSTER_MIN_REJOIN_DELAY 500
 #define CLUSTER_WRITABLE_DELAY 2000
 
+// 周期性的在beforesleep里标记为TODO时被调用
 void clusterUpdateState(void) {
     int j, new_state;
     int reachable_masters = 0;
     static mstime_t among_minority_time;
     static mstime_t first_call_time = 0;
 
+    // 本函数开始执行,所以清除相应的todo标记位
     server.cluster->todo_before_sleep &= ~CLUSTER_TODO_UPDATE_STATE;
 
     /* If this is a master node, wait some time before turning the state
@@ -4035,6 +4063,7 @@ void clusterUpdateState(void) {
      * reconfigure this node. Note that the delay is calculated starting from
      * the first call to this function and not since the server start, in order
      * to don't count the DB loading time. */
+    // 对于当前节点为主节点且目前集群状态处于失败中,需要给集群留有时间相互通信交互最新的状态
     if (first_call_time == 0) first_call_time = mstime();
     if (nodeIsMaster(myself) &&
         server.cluster->state == CLUSTER_FAIL &&
@@ -4047,6 +4076,7 @@ void clusterUpdateState(void) {
     /* Check if all the slots are covered. */
     if (server.cluster_require_full_coverage) {
         for (j = 0; j < CLUSTER_SLOTS; j++) {
+            // 确保所有的slot均有节点负责处理,而且对应的节点状态不为FAIL
             if (server.cluster->slots[j] == NULL ||
                 server.cluster->slots[j]->flags & (CLUSTER_NODE_FAIL))
             {
@@ -4061,10 +4091,10 @@ void clusterUpdateState(void) {
      *
      * At the same time count the number of reachable masters having
      * at least one slot. */
+    // 计算集群中节点为主节点且负责至少一个slot的节点个数,并统计目前依旧可达的主节点个数
     {
         dictIterator *di;
         dictEntry *de;
-
         server.cluster->size = 0;
         di = dictGetSafeIterator(server.cluster->nodes);
         while((de = dictNext(di)) != NULL) {
@@ -4082,9 +4112,11 @@ void clusterUpdateState(void) {
     /* If we are in a minority partition, change the cluster state
      * to FAIL. */
     {
+        // 集群主节点总数的一半+1作为集群正常的底线
         int needed_quorum = (server.cluster->size / 2) + 1;
 
         if (reachable_masters < needed_quorum) {
+            // 集群正常的主节点个数不足
             new_state = CLUSTER_FAIL;
             among_minority_time = mstime();
         }
@@ -4098,6 +4130,7 @@ void clusterUpdateState(void) {
          * minority, don't let it accept queries for some time after the
          * partition heals, to make sure there is enough time to receive
          * a configuration update. */
+        // 对于之前异常目前已经变为正常的节点,重新变为正常时需要延后指定的时间,以留有足够的时间便于交换更新数据
         if (rejoin_delay > CLUSTER_MAX_REJOIN_DELAY)
             rejoin_delay = CLUSTER_MAX_REJOIN_DELAY;
         if (rejoin_delay < CLUSTER_MIN_REJOIN_DELAY)

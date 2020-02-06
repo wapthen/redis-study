@@ -97,7 +97,7 @@ void latencyMonitorInit(void) {
  * This function is usually called via latencyAddSampleIfNeeded(), that
  * is a macro that only adds the sample if the latency is higher than
  * server.latency_monitor_threshold. */
-// 对于超过配置文件中的阈值，则将此事件加入到延迟字典里
+// 将指定的采样数据加入到延迟监控字典里
 void latencyAddSample(char *event, mstime_t latency) {
     // 先找到此event在字典中的节点
     struct latencyTimeSeries *ts = dictFetchValue(server.latency_events,event);
@@ -115,11 +115,13 @@ void latencyAddSample(char *event, mstime_t latency) {
         dictAdd(server.latency_events,zstrdup(event),ts);
     }
 
+    // 更新当前事件的所有采样数据中的最大延迟时间
     if (latency > ts->max) ts->max = latency;
 
     /* If the previous sample is in the same second, we update our old sample
      * if this latency is > of the old one, or just return. */
     // 采样的服务器时间一般而言是递增的，如果相同则判定一下新的延迟时间是否大于现有值，只有大于才更新
+    // 当前结构体中只记录了idx下标数值,即下一个可用位置,所以需要获取前一个已存位置下标
     prev = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
     if (ts->samples[prev].time == now) {
         if (latency > ts->samples[prev].latency)

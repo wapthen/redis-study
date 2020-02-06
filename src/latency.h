@@ -48,7 +48,7 @@ struct latencySample {
 struct latencyTimeSeries {
     // 空闲空间的下标,如果idx达到上限，则重新从0开始
     int idx; /* Index of the next sample to store. */
-    // 最大延迟的数值
+    // 当前已记录的采样书籍中最大延迟的数值
     uint32_t max; /* Max latency observed for this event. */
     struct latencySample samples[LATENCY_TS_LEN]; /* Latest history. */
 };
@@ -80,7 +80,7 @@ int THPIsEnabled(void);
 
 /* End monitoring an event, compute the difference with the current time
  * to check the amount of time elapsed. */
-// 中止计时
+// 宏,中止计时
 #define latencyEndMonitor(var) if (server.latency_monitor_threshold) { \
     var = mstime() - var; \
 }

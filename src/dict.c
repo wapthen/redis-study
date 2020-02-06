@@ -287,7 +287,7 @@ int dictRehashMilliseconds(dict *d, int ms) {
  * This function is called by common lookup or update operations in the
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
-// 在没有迭代器时，对字典迁移一个有效桶数据
+// 在没有安全迭代器时，对字典迁移一个有效桶数据
 static void _dictRehashStep(dict *d) {
     if (d->iterators == 0) dictRehash(d,1);
 }

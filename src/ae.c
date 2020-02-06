@@ -304,6 +304,8 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  */
 /**
  * 从eventLoop的时间事件链表中遍历找到触发时刻最小值
+ * 但是此函数内部没有判断id为-1的延迟删除的场景.
+ * 但是本质上不会造成什么影响
  */
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
@@ -394,7 +396,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
         {
-            //此处表示需要执行此定时任务
+            //此处表示是否需要再次执行此定时任务,-1表示无需再次执行,其他值表示再次执行的时间间隔
             int retval;
 
             id = te->id;
@@ -477,9 +479,11 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * ASAP because of AE_DONT_WAIT we need to set the timeout
              * to zero */
             if (flags & AE_DONT_WAIT) {
+                // 无阻塞
                 tv.tv_sec = tv.tv_usec = 0;
                 tvp = &tv;
             } else {
+                // 一直阻塞直到有事件
                 /* Otherwise we can block */
                 tvp = NULL; /* wait forever */
             }

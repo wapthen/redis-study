@@ -80,7 +80,7 @@ typedef struct dict {
     void *privdata; // 创建字典时引入的私有数据
     dictht ht[2];// 两个字典句柄, 除非目前处于渐进式hash中，所有的节点元素都处在ht[0]中
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */ //渐进式hash即将要处理的ht[0]桶的下标位置，-1表示当前无渐进中
-    unsigned long iterators; /* number of iterators currently running */// 当前字典有安全迭代器的个数
+    unsigned long iterators; /* number of iterators currently running */// 当前字典有安全迭代器的个数, 当此值非0时会暂停渐进式hash
 } dict;
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
@@ -91,7 +91,7 @@ typedef struct dict {
 typedef struct dictIterator {
     dict *d; // 迭代器操作的字典对象
     long index; //
-    int table, safe; // 当前迭代操作的哪个表; 当前迭代器是否是安全迭代器
+    int table, safe; // 当前迭代操作的哪个表; 当前迭代器是否是安全迭代器,对于此类型迭代器会调整dict->iterators进而暂停渐进式hash确保迭代时不会有遗漏
     dictEntry *entry, *nextEntry; // entry:当前节点；nextEntry下一个节点指针
     /* unsafe iterator fingerprint for misuse detection. */
     long long fingerprint;
