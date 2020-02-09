@@ -5,7 +5,7 @@
  * Redis cluster data structures, defines, exported API.
  *----------------------------------------------------------------------------*/
 
-#define CLUSTER_SLOTS 16384 // 2的14次方
+#define CLUSTER_SLOTS 16384 // 槽的总数,2的14次方
 #define CLUSTER_OK 0          /* Everything looks ok */
 #define CLUSTER_FAIL 1        /* The cluster can't work */
 // cluster node id标示长度
@@ -99,6 +99,7 @@ typedef struct clusterLink {
  * kind of packet. PONG is the reply to ping, in the exact format as a PING,
  * while MEET is a special PING that forces the receiver to add the sender
  * as a node (if it is not already in the list). */
+// 用于集群消息交换的消息类别
 #define CLUSTERMSG_TYPE_PING 0          /* Ping */
 #define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
 #define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
@@ -109,17 +110,24 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
 #define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
 #define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
+// 作为消息类别的边界使用
 #define CLUSTERMSG_TYPE_COUNT 10        /* Total number of message types. */
 
 /* Flags that a module can set in order to prevent certain Redis Cluster
  * features to be enabled. Useful when implementing a different distributed
  * system on top of Redis Cluster message bus, using modules. */
 #define CLUSTER_MODULE_FLAG_NONE 0
+// 阻止故障迁移的标记
 #define CLUSTER_MODULE_FLAG_NO_FAILOVER (1<<1)
+// 阻止重定向的标记
 #define CLUSTER_MODULE_FLAG_NO_REDIRECTION (1<<2)
 
 /**
  * 如下结构体的关系是 
+ * clusterstate全局只有一个实例, 用于统一维护集群的所有信息
+ * 其中含有一个clusternode字典结构,存有集群内所有的节点信息
+ * clusternode内部有一个clusterlink结构体,存有当前节点跟此node通信用的tcp长连接信息;
+ * 同时clusternode内部含有一个clusternodefailreport链表,存有兄弟节点报告此node节点为FAIL or PFAIL的信息
  *  clusterState ---> clusterNode array
  *  clusterNode <---> clusterLink
  *  clusterNode -----> clusterNodeFailReport list
@@ -181,7 +189,7 @@ typedef struct clusterNode {
 typedef struct clusterState {
     // 当前进程所在的node节点
     clusterNode *myself;  /* This node */
-    // 集群当前的配置纪元
+    // 集群当前的配置纪元,稳定情况下集群里的所有主备节点的currentEpoch都应为同一个值
     uint64_t currentEpoch;
     // 集群状态
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
