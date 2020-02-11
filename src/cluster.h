@@ -30,6 +30,7 @@
 #define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
 
 /* Redirection errors returned by getNodeByQuery(). */
+// 
 #define CLUSTER_REDIR_NONE 0          /* Node can serve the request. */
 #define CLUSTER_REDIR_CROSS_SLOT 1    /* -CROSSSLOT request. */
 #define CLUSTER_REDIR_UNSTABLE 2      /* -TRYAGAIN redirection required */
@@ -41,28 +42,31 @@
 struct clusterNode;
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
-// cluster link结构体代表了集群通信的client对端信息
+// cluster link结构体代表了本节点跟集群其他节点通信所用的client信息
 typedef struct clusterLink {
     // tcp 长连接创建时刻
     mstime_t ctime;             /* Link creation time */
     // 用于bus通信的tcp 套接字句柄
     int fd;                     /* TCP socket file descriptor */
     // tcp 发送缓冲区
-    sds sndbuf;
-    // tcp 接收缓冲区             /* Packet send buffer */
-    sds rcvbuf;
-    // 本link代表的对端node节点    /* Packet reception buffer */
+    sds sndbuf;                 /* Packet send buffer */
+    // tcp 接收缓冲区             
+    sds rcvbuf;                 /* Packet reception buffer */
+    // 指向本link代表的对端node节点,实际的node节点存在与clusterState里的node字典中
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
 } clusterLink;
 
 /* Cluster node flags and macros. */
+// 集群中单个节点状态
 #define CLUSTER_NODE_MASTER 1     /* The node is a master */
 #define CLUSTER_NODE_SLAVE 2      /* The node is a slave */
 #define CLUSTER_NODE_PFAIL 4      /* Failure? Need acknowledge */
 #define CLUSTER_NODE_FAIL 8       /* The node is believed to be malfunctioning */
 #define CLUSTER_NODE_MYSELF 16    /* This node is myself */
 #define CLUSTER_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
+// 节点目前还不知道ip地址
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
+// 节点需要发送一个MEET消息
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
 // 主节点有备节点,处于可以数据复制操作的状态
 #define CLUSTER_NODE_MIGRATE_TO 256 /* Master eligible for replica migration. */
@@ -80,6 +84,7 @@ typedef struct clusterLink {
 #define nodeCantFailover(n) ((n)->flags & CLUSTER_NODE_NOFAILOVER)
 
 /* Reasons why a slave is not able to failover. */
+// 备节点不能完成故障迁移的原因
 #define CLUSTER_CANT_FAILOVER_NONE 0
 #define CLUSTER_CANT_FAILOVER_DATA_AGE 1
 #define CLUSTER_CANT_FAILOVER_WAITING_DELAY 2
@@ -88,9 +93,14 @@ typedef struct clusterLink {
 #define CLUSTER_CANT_FAILOVER_RELOG_PERIOD (60*5) /* seconds. */
 
 /* clusterState todo_before_sleep flags. */
+// 集群待处理的事项
+// 需异步处理故障迁移工作
 #define CLUSTER_TODO_HANDLE_FAILOVER (1<<0)
+// 需异步重新计算并更新内存里的集群状态
 #define CLUSTER_TODO_UPDATE_STATE (1<<1)
+// 需异步保存配置文件
 #define CLUSTER_TODO_SAVE_CONFIG (1<<2)
+// 需异步刷盘配置文件
 #define CLUSTER_TODO_FSYNC_CONFIG (1<<3)
 
 /* Message types.
@@ -124,7 +134,7 @@ typedef struct clusterLink {
 
 /**
  * 如下结构体的关系是 
- * clusterstate全局只有一个实例, 用于统一维护集群的所有信息
+ * clusterstate全局只有一个实例, 用于当前实例统一维护集群的所有信息
  * 其中含有一个clusternode字典结构,存有集群内所有的节点信息
  * clusternode内部有一个clusterlink结构体,存有当前节点跟此node通信用的tcp长连接信息;
  * 同时clusternode内部含有一个clusternodefailreport链表,存有兄弟节点报告此node节点为FAIL or PFAIL的信息
@@ -135,9 +145,10 @@ typedef struct clusterLink {
 /* This structure represent elements of node->fail_reports. */
 // 失败报告信息结构体
 typedef struct clusterNodeFailReport {
-    // 指向是由哪个node节点发出的失败报告
+    // 指向是由哪个node节点发出的失败报告, 实际node节点存于clusterstate中的node字典
+    // 表示发送此消息的节点
     struct clusterNode *node;  /* Node reporting the failure condition. */
-    // 从此node节点发出的失败报告的最新时刻
+    // 失败报告的最新时刻
     mstime_t time;             /* Time of the last report from this node. */
 } clusterNodeFailReport;
 
@@ -149,17 +160,17 @@ typedef struct clusterNode {
     char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
     // 节点状态字段
     int flags;      /* CLUSTER_NODE_... */
-    // 节点的最新配置纪元
+    // 节点的最新配置纪元,集群里的每一个节点的configEpoch数值均不相同
     uint64_t configEpoch; /* Last configEpoch observed for this node */
     // 节点记录的槽位图, 位图中对应bit位为1标示由本node节点负责处理
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
     // 节点上负责处理的槽位个数
     int numslots;   /* Number of slots handled by this node */
-    // 如果表示的节点信息是主节点,则此值为该主节点下的备节点个数
+    // 如果该节点信息是主节点,则此值为该主节点下的备节点个数
     int numslaves;  /* Number of slave nodes, if this is a master */
-    // 如果表示的节点信息是主节点,则此值为该主节点下的备节点指针数组,具体个数由numslaves确定
+    // 如果该节点信息是主节点,则此值为该主节点下的备节点指针数组,具体个数由numslaves确定
     struct clusterNode **slaves; /* pointers to slave nodes */
-    // 如果当前节点为备节点,则此值指向主节点
+    // 如果该节点为备节点,则此值指向主节点
     struct clusterNode *slaveof; /* pointer to the master node. Note that it
                                     may be NULL even if the node is a slave
                                     if we don't have the master node in our
@@ -171,6 +182,7 @@ typedef struct clusterNode {
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
+    // 主节点为孤儿主节点的起始时刻
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
     // 节点的ip地址
@@ -197,7 +209,7 @@ typedef struct clusterState {
     int size;             /* Num of master nodes with at least one slot */
     // 集群里的节点字典, 记录了 nodeid-->node的映射关系
     dict *nodes;          /* Hash table of name -> clusterNode structures */
-    // 集群里处在黑名单中的节点字典
+    // 集群里处在黑名单中的节点字典,在此字典中的节点短期内时不会被加入到集群中
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
     // 集群中处于正在迁出的槽位以及对应迁出的节点指针数组
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
@@ -218,13 +230,17 @@ typedef struct clusterState {
     int cant_failover_reason;   /* Why a slave is currently not able to
                                    failover. See the CANT_FAILOVER_* macros. */
     /* Manual failover state in common. */
+    // 手工迁移的截止时刻
     mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
                                    It is zero if there is no MF in progress. */
     /* Manual failover state of master. */
+    // 执行手动迁移的备节点
     clusterNode *mf_slave;      /* Slave performing the manual failover. */
     /* Manual failover state of slave. */
+    // 手工迁移时主节点的偏移量
     long long mf_master_offset; /* Master offset the slave needs to start MF
                                    or zero if stil not received. */
+    // 手工迁移符合条件,可以开始
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
     /* The followign fields are used by masters to take state on elections. */
@@ -314,7 +330,7 @@ union clusterMsgData {
 typedef struct {
     // 消息体标记
     char sig[4];        /* Signature "RCmb" (Redis Cluster message bus). */
-    // 消息体整体长度
+    // 消息体整体长度,包含本结构体
     uint32_t totlen;    /* Total length of this message */
     // 消息版本号
     uint16_t ver;       /* Protocol version, currently set to 1. */
@@ -322,10 +338,11 @@ typedef struct {
     uint16_t port;      /* TCP base port number. */
     // 消息类别
     uint16_t type;      /* Message type */
-    // 消息body个数,只对ping pong meet类型有效
+    // 消息body里存储的实际个数,只对ping pong meet类型有效
     uint16_t count;     /* Only used for some kind of messages. */
-    // 发送此消息的节点纪元
+    // 发送此消息的节点所记录的集群纪元
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
+    // 发送此消息的节点所记录的节点纪元
     uint64_t configEpoch;   /* The config epoch if it's a master, or the last
                                epoch advertised by its master if it is a
                                slave. */

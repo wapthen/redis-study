@@ -2523,13 +2523,17 @@ void processClientsWaitingReplicas(void) {
 
 /* Return the slave replication offset for this instance, that is
  * the offset for which we already processed the master replication stream. */
+// 计算当前备节点的复制偏移量
 long long replicationGetSlaveOffset(void) {
     long long offset = 0;
 
+    // 表示当前为备节点
     if (server.masterhost != NULL) {
         if (server.master) {
+            // 优先使用主节点复制偏移量
             offset = server.master->reploff;
         } else if (server.cached_master) {
+            // 使用备份主的偏移量
             offset = server.cached_master->reploff;
         }
     }

@@ -468,6 +468,7 @@ typedef long long mstime_t; /* millisecond time type. */
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
+// 多少毫秒执行一次
 #define run_with_period(_ms_) if ((_ms_ <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
 /* We can print the stacktrace, so our assert is defined this way: */
@@ -1014,15 +1015,18 @@ struct redisServer {
     int sofd;                   /* Unix socket file descriptor */
     int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
     int cfd_count;              /* Used slots in cfd[] */
+    // 所有client链表
     list *clients;              /* List of active clients */
-    // 异步释放的client链表
+    // 异步待释放的client链表
     list *clients_to_close;     /* Clients to close asynchronously */
     // 记录需要将响应发送给对方的client链表
     list *clients_pending_write; /* There is to write or install handler. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client; /* Current client, only used on crash report */
     rax *clients_index;         /* Active clients dictionary by client ID. */
+    // client处于暂停中
     int clients_paused;         /* True if clients are currently paused */
+    // 处于暂停中的client的截止时刻
     mstime_t clients_pause_end_time; /* Time when we undo clients_paused */
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
@@ -1304,13 +1308,15 @@ struct redisServer {
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
     /* Cluster */
-    int cluster_enabled;      /* Is cluster enabled? */ //释放是cluster集群模式
+    // 是否开启cluster集群模式
+    int cluster_enabled;      /* Is cluster enabled? */ //
     // cluster集群节点的超时数值,单位ms
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
-    // cluster集群模式下的配置文件路径
+    // cluster集群模式下的配置文件路径,同时也作为文件排他锁避免同一配置文件启动多个节点实例
     char *cluster_configfile; /* Cluster auto-generated config file name. */
     // 全局集群节点数据结构
     struct clusterState *cluster;  /* State of the cluster */
+    // 集群迁移屏障,如果当前ok的备节点个数<=此值,则不进行备升主操作
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
     // 确认所有的slot均有节点负责,否则将集群状态置为down

@@ -2253,25 +2253,31 @@ void pauseClients(mstime_t end) {
 
 /* Return non-zero if clients are currently paused. As a side effect the
  * function checks if the pause time was reached and clear it. */
+// 校验当前是否依旧处于client暂停,如果已经过期,则将client激活
 int clientsArePaused(void) {
     if (server.clients_paused &&
         server.clients_pause_end_time < server.mstime)
     {
+        // 暂停时刻已经过期,需要重新激活之前处于暂停中的client
         listNode *ln;
         listIter li;
         client *c;
 
+        // 重置为0
         server.clients_paused = 0;
 
         /* Put all the clients in the unblocked clients queue in order to
          * force the re-processing of the input buffer if any. */
+        // 遍历所有的用户client数据
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
             c = listNodeValue(ln);
 
             /* Don't touch slaves and blocked clients.
              * The latter pending requests will be processed when unblocked. */
+            // 绕过 备节点以及阻塞的client
             if (c->flags & (CLIENT_SLAVE|CLIENT_BLOCKED)) continue;
+            // 激活之前处于暂停中的client
             queueClientForReprocessing(c);
         }
     }

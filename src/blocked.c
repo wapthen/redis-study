@@ -156,7 +156,7 @@ void processUnblockedClients(void) {
  * 4. With this function instead we can put the client in a queue that will
  *    process it for queries ready to be executed at a safe time.
  */
-// 对于先前处于阻塞的client变为非阻塞时，将此client放入到list中，之后统一执行client中累积的命令数据
+// 对于先前处于阻塞or暂停的client变为非阻塞时，将此client放入到unblock-list中，之后统一执行client中累积的命令数据
 void queueClientForReprocessing(client *c) {
     /* The client may already be into the unblocked list because of a previous
      * blocking operation, don't add back it into the list multiple times. */
