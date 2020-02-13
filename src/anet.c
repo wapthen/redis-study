@@ -714,7 +714,7 @@ int anetFormatPeer(int fd, char *buf, size_t buf_len) {
     return anetFormatAddr(buf, buf_len, ip, port);
 }
 /**
- * 根据socket文件句柄获取本地地址
+ * 根据socket文件句柄获取本机地址
  */
 int anetSockName(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_storage sa;

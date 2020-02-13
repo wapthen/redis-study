@@ -63,10 +63,11 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_PFAIL 4      /* Failure? Need acknowledge */
 #define CLUSTER_NODE_FAIL 8       /* The node is believed to be malfunctioning */
 #define CLUSTER_NODE_MYSELF 16    /* This node is myself */
+// 需要跟该node节点进行握手识别
 #define CLUSTER_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 // 节点目前还不知道ip地址
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
-// 节点需要发送一个MEET消息
+// 需要向该节点发送一个MEET消息, 收到MEET消息的这一方会将发送消息方的信息加入到本节点记录的集群节点字典里
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
 // 主节点有备节点,处于可以数据复制操作的状态
 #define CLUSTER_NODE_MIGRATE_TO 256 /* Master eligible for replica migration. */
@@ -115,6 +116,7 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
 #define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
 #define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propagation */
+// 备节点发送的故障迁移投票消息,此类型消息只含有消息头
 #define CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST 5 /* May I failover? */
 #define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you have my vote */
 #define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
@@ -192,8 +194,9 @@ typedef struct clusterNode {
     // 节点用于cluster bus通信的监听端口
     int cport;                  /* Latest known cluster port of this node. */
     // 当前节点对应的link信息
+    // 此字段为null时,会通过clusterCron函数来建立socket连接
     clusterLink *link;          /* TCP/IP link with this node */
-    // 标注本节点为失败or疑似失败的报告链表
+    // 周边那些主节点标注此节点为失败or疑似失败的报告链表, 只记录sender为主节点发出的通知
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
@@ -222,10 +225,15 @@ typedef struct clusterState {
     // 集群里 槽id-->key 映射关系
     rax *slots_to_keys;
     /* The following fields are used to take the slave state on elections. */
+    // 故障迁移的开始时间
     mstime_t failover_auth_time; /* Time of previous or next election. */
+    // 截止当前,本节点收到的投票数
     int failover_auth_count;    /* Number of votes received so far. */
+    // 截止当前,本节点是否已经发送出投票
     int failover_auth_sent;     /* True if we already asked for votes. */
+    // 本节点的rank值,rank值越小越有可能升为主
     int failover_auth_rank;     /* This slave rank for current auth request. */
+    // 备节点发出迁移投票的集群纪元
     uint64_t failover_auth_epoch; /* Epoch of the current election. */
     int cant_failover_reason;   /* Why a slave is currently not able to
                                    failover. See the CANT_FAILOVER_* macros. */
@@ -272,7 +280,7 @@ typedef struct {
 
 // 广播某一个节点是fail的信息结构体
 typedef struct {
-    char nodename[CLUSTER_NAMELEN];
+    char nodename[CLUSTER_NAMELEN];//FAIL的节点标识
 } clusterMsgDataFail;
 
 typedef struct {
@@ -348,13 +356,13 @@ typedef struct {
                                slave. */
     uint64_t offset;    /* Master replication offset if node is a master or
                            processed replication offset if node is a slave. */
-    // 发送此消息的节点id
+    // 发送方的节点id
     char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
     // 发送此消息的节点所记录的主节点中的槽位图
     unsigned char myslots[CLUSTER_SLOTS/8];
-    // 此节点锁对应的主节点id
+    // 发送方所对应的主节点id
     char slaveof[CLUSTER_NAMELEN];
-    // 此节点的ip地址
+    // 发送方的ip地址
     char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
     // 填充数据
     char notused1[34];  /* 34 bytes reserved for future usage. */
@@ -365,7 +373,7 @@ typedef struct {
     // 发送此消的节点记录的集群状态
     unsigned char state; /* Cluster state from the POV of the sender */
     unsigned char mflags[3]; /* Message flags: CLUSTERMSG_FLAG[012]_... */
-    // 消息body
+    // 消息body, body体里时不会含有发送者的相关信息,发送者的状态信息已经明显的在消息头里
     union clusterMsgData data;
 } clusterMsg;
 

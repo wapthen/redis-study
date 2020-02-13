@@ -772,6 +772,7 @@ typedef struct client {
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
+    // 跟主节点最新一次交互的时刻
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     // 响应消息reply-list内存 初次 超过软限值的时刻，需要连续超过才有效，中间有一次未超过软限值时，此值清0
     time_t obuf_soft_limit_reached_time;
@@ -1013,7 +1014,9 @@ struct redisServer {
     int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors */
     int ipfd_count;             /* Used slots in ipfd[] */
     int sofd;                   /* Unix socket file descriptor */
+    // cluster集群通信所用的tcp 套接字数组
     int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
+    // cluster集群通信所用的tcp 套接字总个数
     int cfd_count;              /* Used slots in cfd[] */
     // 所有client链表
     list *clients;              /* List of active clients */
@@ -1210,6 +1213,7 @@ struct redisServer {
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
+    // 主节点ping备节点的间隔时间
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     char *repl_backlog;             /* Replication backlog for partial syncs */
     long long repl_backlog_size;    /* Backlog circular buffer size */
@@ -1246,6 +1250,7 @@ struct redisServer {
     int repl_serve_stale_data; /* Serve stale data when link is down? */
     int repl_slave_ro;          /* Slave is read only? */ // 备模式下是否只读,1表示只读；0表示可写
     int repl_slave_ignore_maxmemory;    /* If true slaves do not evict. */
+    // 备节点跟主节点异常断开的时刻
     time_t repl_down_since; /* Unix time at which link with master went down */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
@@ -1318,6 +1323,7 @@ struct redisServer {
     struct clusterState *cluster;  /* State of the cluster */
     // 集群迁移屏障,如果当前ok的备节点个数<=此值,则不进行备升主操作
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
+    // 备节点允许进行故障切换所允许的数据最大时长因子
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
     // 确认所有的slot均有节点负责,否则将集群状态置为down
     int cluster_require_full_coverage; /* If true, put the cluster down if
