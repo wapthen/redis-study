@@ -463,6 +463,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM) /* A flag */
 
 /* Get the first bind addr or NULL */
+// 如果已经完成绑定,那么获取第一个本机绑定的地址,否则返回NULL
 #define NET_FIRST_BIND_ADDR (server.bindaddr_count ? server.bindaddr[0] : NULL)
 
 /* Using the following macro you can run code inside serverCron() with the
@@ -1208,9 +1209,13 @@ struct redisServer {
     char *syslog_ident;             /* Syslog ident */
     int syslog_facility;            /* Syslog facility */
     /* Replication (master) */
+    // 当前在使用的复制id
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
+    // 上一次所用的复制id
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
+    // 当前在使用的复制偏移量
     long long master_repl_offset;   /* My current replication offset */
+    // 上一次所用的复制偏移量
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     // 主节点ping备节点的间隔时间

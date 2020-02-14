@@ -179,12 +179,12 @@ typedef struct clusterNode {
                                     tables. */
     // 节点最新一次发送ping的时刻,单位毫秒, 在收到对应的pong后会对此值清为0
     mstime_t ping_sent;      /* Unix time we sent latest ping */
-    // 节点最新一次接收pong的时刻,单位毫秒
+    // 节点最新一次接收pong的时刻,单位毫秒, 此值不会备清0,因为需要使用此字段作为随机选取数值最小的节点进行ping
     mstime_t pong_received;  /* Unix time we received the pong */
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
-    // 主节点为孤儿主节点的起始时刻
+    // 主节点判定为孤儿主节点的时刻
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
     // 节点的ip地址
@@ -195,6 +195,7 @@ typedef struct clusterNode {
     int cport;                  /* Latest known cluster port of this node. */
     // 当前节点对应的link信息
     // 此字段为null时,会通过clusterCron函数来建立socket连接
+    // 此字段非null时,是一个写通道连接,当前运行实例写入数据,通过此link发送给该node节点
     clusterLink *link;          /* TCP/IP link with this node */
     // 周边那些主节点标注此节点为失败or疑似失败的报告链表, 只记录sender为主节点发出的通知
     list *fail_reports;         /* List of nodes signaling this as failing */

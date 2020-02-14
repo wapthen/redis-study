@@ -1006,6 +1006,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
  * This will prevent successful PSYNCs between this master and other
  * slaves, so the command should be called when something happens that
  * alters the current story of the dataset. */
+// 生成一个新的复制id
 void changeReplicationId(void) {
     getRandomHexChars(server.replid,CONFIG_RUN_ID_SIZE);
     server.replid[CONFIG_RUN_ID_SIZE] = '\0';
@@ -1025,7 +1026,9 @@ void clearReplicationId2(void) {
  * This should be used when an instance is switched from slave to master
  * so that it can serve PSYNC requests performed using the master
  * replication ID. */
+// 转移复制id,将当前记录的复制id以及偏移量 转移到 备份处
 void shiftReplicationId(void) {
+    // 镜像复制id
     memcpy(server.replid2,server.replid,sizeof(server.replid));
     /* We set the second replid offset to the master offset + 1, since
      * the slave will ask for the first byte it has not yet received, so
@@ -1034,7 +1037,9 @@ void shiftReplicationId(void) {
      * are turned into a master, we can accept a PSYNC request with offset
      * 51, since the slave asking has the same history up to the 50th
      * byte, and is asking for the new bytes starting at offset 51. */
+    // 镜像复制偏移量,PSYNC命令会请求还没有收到的字节偏移量,所以需要+1
     server.second_replid_offset = server.master_repl_offset+1;
+    // 生成一个新的复制id
     changeReplicationId();
     serverLog(LL_WARNING,"Setting secondary replication ID to %s, valid up to offset: %lld. New replication ID is %s", server.replid2, server.second_replid_offset, server.replid);
 }
@@ -1984,8 +1989,11 @@ void replicationSetMaster(char *ip, int port) {
 }
 
 /* Cancel replication, setting the instance as a master itself. */
+// 终止复制并将当前节点设置为主
 void replicationUnsetMaster(void) {
+    // 自身已经时主节点的情况直接返回
     if (server.masterhost == NULL) return; /* Nothing to do. */
+    // 释放当前备节点所属主节点的地址内存
     sdsfree(server.masterhost);
     server.masterhost = NULL;
     /* When a slave is turned into a master, the current replication ID
