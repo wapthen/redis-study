@@ -4317,9 +4317,11 @@ int verifyClusterConfigWithData(void) {
 
     /* If this node is a slave, don't perform the check at all as we
      * completely depend on the replication stream. */
+    // 只有主节点才需要校验,备节点无需校验
     if (nodeIsSlave(myself)) return C_OK;
 
     /* Make sure we only have keys in DB0. */
+    // 确保cluster模式下只有db0有数据
     for (j = 1; j < server.dbnum; j++) {
         if (dictSize(server.db[j].dict)) return C_ERR;
     }
@@ -4331,16 +4333,18 @@ int verifyClusterConfigWithData(void) {
         /* Check if we are assigned to this slot or if we are importing it.
          * In both cases check the next slot as the configuration makes
          * sense. */
+        // 一般而言, 节点里记录的数据均应该是由本节点负责的槽位,或者处于从外部节点导入本节点过程中
         if (server.cluster->slots[j] == myself ||
             server.cluster->importing_slots_from[j] != NULL) continue;
 
         /* If we are here data and cluster config don't agree, and we have
          * slot 'j' populated even if we are not importing it, nor we are
          * assigned to this slot. Fix this condition. */
-
+        // 说明数据跟配置文件不相符
         update_config++;
         /* Case A: slot is unassigned. Take responsibility for it. */
         if (server.cluster->slots[j] == NULL) {
+            // 此slot无节点负责,则由本节点来处理
             serverLog(LL_WARNING, "I have keys for unassigned slot %d. "
                                     "Taking responsibility for it.",j);
             clusterAddSlot(myself,j);
@@ -4348,6 +4352,7 @@ int verifyClusterConfigWithData(void) {
             serverLog(LL_WARNING, "I have keys for slot %d, but the slot is "
                                     "assigned to another node. "
                                     "Setting it to importing state.",j);
+            // 有槽位目前由其他节点负责,但是数据存在本节点中,所以准备将其迁入本节点
             server.cluster->importing_slots_from[j] = server.cluster->slots[j];
         }
     }
@@ -4409,7 +4414,7 @@ static struct redisNodeFlags redisNodeFlagsTable[] = {
 
 /* Concatenate the comma separated list of node flags to the given SDS
  * string 'ci'. */
-// 根据入参flags拼接出该节点的的flag数据
+// 根据入参flags拼接出该节点的的flag数据, 中间以逗号分割
 sds representClusterNodeFlags(sds ci, uint16_t flags) {
     size_t orig_len = sdslen(ci);
     int i, size = sizeof(redisNodeFlagsTable)/sizeof(struct redisNodeFlags);
@@ -4420,6 +4425,7 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
     }
     /* If no flag was added, add the "noflags" special flag. */
     if (sdslen(ci) == orig_len) ci = sdscat(ci,"noflags,");
+    // 删除掉最末尾的逗号
     sdsIncrLen(ci,-1); /* Remove trailing comma. */
     return ci;
 }
@@ -4428,6 +4434,7 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
  * See clusterGenNodesDescription() top comment for more information.
  *
  * The function returns the string representation as an SDS string. */
+// 根据此node节点信息生成csv样式的配置数据,分隔符时空格
 sds clusterGenNodeDescription(clusterNode *node) {
     int j, start;
     sds ci;
@@ -4446,6 +4453,8 @@ sds clusterGenNodeDescription(clusterNode *node) {
     /* Slave of... or just "-" */
     if (node->slaveof)
         // 当前节点是备节点,拼接其对应的主节点名称
+        // For s: this is the maximum number of characters to be printed. 
+        // By default all characters are printed until the ending null character is encountered.
         ci = sdscatprintf(ci," %.40s ",node->slaveof->name);
     else
         // 当前节点为主节点
@@ -4508,6 +4517,7 @@ sds clusterGenNodeDescription(clusterNode *node) {
  * The representation obtained using this function is used for the output
  * of the CLUSTER NODES function, and as format for the cluster
  * configuration file (nodes.conf) for a given node. */
+// 生成类似csv样式的配置数据
 sds clusterGenNodesDescription(int filter) {
     sds ci = sdsempty(), ni;
     dictIterator *di;
@@ -4531,6 +4541,7 @@ sds clusterGenNodesDescription(int filter) {
  * CLUSTER command
  * -------------------------------------------------------------------------- */
 
+// 交互消息类型,根据type值解析成字符串型数据
 const char *clusterGetMessageTypeString(int type) {
     switch(type) {
     case CLUSTERMSG_TYPE_PING: return "ping";
@@ -4547,6 +4558,7 @@ const char *clusterGetMessageTypeString(int type) {
     return "unknown";
 }
 
+// 将robj类型的slot数据解析成int型,如果出错,则直接构造错误信息发送给client
 int getSlotOrReply(client *c, robj *o) {
     long long slot;
 
@@ -4582,6 +4594,7 @@ void clusterReplyMultiBulkSlots(client *c) {
 
         /* Skip slaves (that are iterated when producing the output of their
          * master) and  masters not serving any slot. */
+        // 只构造有效槽位的主节点配置
         if (!nodeIsMaster(node) || node->numslots == 0) continue;
 
         for (j = 0; j < CLUSTER_SLOTS; j++) {
@@ -4633,6 +4646,7 @@ void clusterReplyMultiBulkSlots(client *c) {
     setDeferredMultiBulkLength(c, slot_replylen, num_masters);
 }
 
+// cluster命令总入口
 void clusterCommand(client *c) {
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
@@ -5847,6 +5861,7 @@ void askingCommand(client *c) {
 /* The READONLY command is used by clients to enter the read-only mode.
  * In this mode slaves will not redirect clients as long as clients access
  * with read-only commands to keys that are served by the slave's master. */
+// 将一个client置为readonly模式
 void readonlyCommand(client *c) {
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
@@ -5857,6 +5872,7 @@ void readonlyCommand(client *c) {
 }
 
 /* The READWRITE command just clears the READONLY command state. */
+// 关闭client的readonly模式
 void readwriteCommand(client *c) {
     c->flags &= ~CLIENT_READONLY;
     addReply(c,shared.ok);
@@ -5897,16 +5913,18 @@ void readwriteCommand(client *c) {
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
     clusterNode *n = NULL;
     robj *firstkey = NULL;
-    int multiple_keys = 0;
+    int multiple_keys = 0; // 是否有多个不同值的key
     multiState *ms, _ms;
     multiCmd mc;
     int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0;
 
     /* Allow any key to be set if a module disabled cluster redirections. */
+    // 在关闭集群重定向的时候,由本节点来处理此命令
     if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
         return myself;
 
     /* Set error code optimistically for the base case. */
+    // 设置默认的初始化值,重定向正常
     if (error_code) *error_code = CLUSTER_REDIR_NONE;
 
     /* Modules can turn off Redis Cluster redirection: this is useful
@@ -5918,6 +5936,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     if (cmd->proc == execCommand) {
         /* If CLIENT_MULTI flag is not set EXEC is just going to return an
          * error. */
+        // 当前命令属于执行命令,但是当前client并没有设置事务开启标记,则返回本节点
         if (!(c->flags & CLIENT_MULTI)) return myself;
         ms = &c->mstate;
     } else {
@@ -5931,6 +5950,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.argc = argc;
         mc.cmd = cmd;
     }
+
+    // 至此, 需要对待执行命令的key判断是否属于同一个槽位,即使是multi/exec的事务数据也需要进行判定
 
     /* Check that all the keys are in the same hash slot, and obtain this
      * slot and the node associated. */
@@ -5960,6 +5981,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * state. However the state is yet to be updated, so this was
                  * not trapped earlier in processCommand(). Report the same
                  * error to the client. */
+                // 对于当前槽位没有节点负责时,返回此槽位没有节点负责
                 if (n == NULL) {
                     getKeysFreeResult(keyindex);
                     if (error_code)
@@ -5972,6 +5994,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * can safely serve the request, otherwise we return a TRYAGAIN
                  * error). To do so we set the importing/migrating state and
                  * increment a counter for every missing key. */
+                // 判断当前slot是处于迁移外部?还是导入?
                 if (n == myself &&
                     server.cluster->migrating_slots_to[slot] != NULL)
                 {
@@ -5982,8 +6005,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             } else {
                 /* If it is not the first key, make sure it is exactly
                  * the same key as the first we saw. */
+                // key去重,只判定不同的key
                 if (!equalStringObjects(firstkey,thiskey)) {
                     if (slot != thisslot) {
+                        // 至少有两个key处于不同的slot中
                         /* Error: multiple keys from different slots. */
                         getKeysFreeResult(keyindex);
                         if (error_code)
@@ -5997,6 +6022,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 }
             }
 
+            // 对于key处于迁移走 or 导入中的情况,再次确认此key当前是否在本字典中
             /* Migarting / Improrting slot? Count keys we don't have. */
             if ((migrating_slot || importing_slot) &&
                 lookupKeyRead(&server.db[0],thiskey) == NULL)
@@ -6012,6 +6038,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     if (n == NULL) return myself;
 
     /* Cluster is globally down but we got keys? We can't serve the request. */
+    // 本节点记录的集群状态异常,则直接返回异常信息提示
     if (server.cluster->state != CLUSTER_OK) {
         if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
         return NULL;
@@ -6023,11 +6050,13 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* MIGRATE always works in the context of the local node if the slot
      * is open (migrating or importing state). We need to be able to freely
      * move keys among instances in this case. */
+    // 有槽位处于移动中,而且时迁移命令,那么有本节点负责
     if ((migrating_slot || importing_slot) && cmd->proc == migrateCommand)
         return myself;
 
     /* If we don't have all the keys and we are migrating the slot, send
      * an ASK redirection. */
+    // 此槽位在迁移中,而且当前节点已无此槽位,那么返回ASK标记,并返回此槽位所在的节点
     if (migrating_slot && missing_keys) {
         if (error_code) *error_code = CLUSTER_REDIR_ASK;
         return server.cluster->migrating_slots_to[slot];
@@ -6037,6 +6066,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * request as "ASKING", we can serve the request. However if the request
      * involves multiple keys and we don't have them all, the only option is
      * to send a TRYAGAIN error. */
+    // 槽位目前处于导入中, 而且客户端标记为asking的话,尽可能由本节点处理
+    // 只有当处理的命令涉及到多个key,而且目前还有key没有导入的场景,表示后续可以再试
     if (importing_slot &&
         (c->flags & CLIENT_ASKING || cmd->flags & CMD_ASKING))
     {
@@ -6051,6 +6082,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* Handle the read-only client case reading from a slave: if this
      * node is a slave and the request is about an hash slot our master
      * is serving, we can reply without redirection. */
+    // 对于处于只读模式的client 或者是eval sha命令,且当前实例是备节点,而且此备节点的主节点负责slot
     if (c->flags & CLIENT_READONLY &&
         (cmd->flags & CMD_READONLY || cmd->proc == evalCommand ||
          cmd->proc == evalShaCommand) &&
@@ -6062,6 +6094,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
 
     /* Base case: just return the right node. However if this node is not
      * myself, set error_code to MOVED since we need to issue a rediretion. */
+    // 非当前节点负责,返回moved命令并提供正确的节点地址
     if (n != myself && error_code) *error_code = CLUSTER_REDIR_MOVED;
     return n;
 }
@@ -6073,6 +6106,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
  * are used, then the node 'n' should not be NULL, but should be the
  * node we want to mention in the redirection. Moreover hashslot should
  * be set to the hash slot that caused the redirection. */
+// 发送指定的重定向结果给client
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code) {
     if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
         addReplySds(c,sdsnew("-CROSSSLOT Keys in request don't hash to the same slot\r\n"));
@@ -6108,6 +6142,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
  * If the client is found to be blocked into an hash slot this node no
  * longer handles, the client is sent a redirection error, and the function
  * returns 1. Otherwise 0 is returned and no operation is performed. */
+// 对于处于阻塞中的client,判断此client所用的slot是否依旧由本节点负责, 如果此slot已由其他节点负责,则发送重定向命令
 int clusterRedirectBlockedClientIfNeeded(client *c) {
     if (c->flags & CLIENT_BLOCKED &&
         (c->btype == BLOCKED_LIST ||
@@ -6118,11 +6153,13 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
         dictIterator *di;
 
         /* If the cluster is down, unblock the client with the right error. */
+        // 集群不正常
         if (server.cluster->state == CLUSTER_FAIL) {
             clusterRedirectClient(c,NULL,0,CLUSTER_REDIR_DOWN_STATE);
             return 1;
         }
 
+        // 遍历该阻塞client所关注的所有key
         /* All keys must belong to the same slot, so check first key only. */
         di = dictGetIterator(c->bpop.keys);
         if ((de = dictNext(di)) != NULL) {
@@ -6133,6 +6170,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
             /* We send an error and unblock the client if:
              * 1) The slot is unassigned, emitting a cluster down error.
              * 2) The slot is not handled by this node, nor being imported. */
+            // 槽位并不是由本节点负责,而且此槽位也没有导入中
             if (node != myself &&
                 server.cluster->importing_slots_from[slot] == NULL)
             {

@@ -1215,6 +1215,8 @@ int expireIfNeeded(redisDb *db, robj *key) {
 
 /* The base case is to use the keys position as given in the command table
  * (firstkey, lastkey, step). */
+// 从原始命令中,获取key所在的位置数据
+// 注意此函数内部会分配堆内存,所以调用方需要负责释放此函数的返回结果
 int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, int *numkeys) {
     int j, i = 0, last, *keys;
     UNUSED(argv);
@@ -1226,6 +1228,7 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
 
     last = cmd->lastkey;
     if (last < 0) last = argc+last;
+    // 按照最坏的情况来分配结果内存,即从first 到 last都是key
     keys = zmalloc(sizeof(int)*((last - cmd->firstkey)+1));
     for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
         if (j >= argc) {
@@ -1245,6 +1248,7 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
         }
         keys[i++] = j;
     }
+    // 实际有效的key个数
     *numkeys = i;
     return keys;
 }
@@ -1260,6 +1264,7 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
  *
  * This function uses the command table if a command-specific helper function
  * is not required, otherwise it calls the command-specific function. */
+// 此函数的返回结果是个堆内存数组,需要由调用方来负责调用gekeysfresult来释放此结果
 int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     if (cmd->flags & CMD_MODULE_GETKEYS) {
         return moduleGetCommandKeysViaAPI(cmd,argv,argc,numkeys);

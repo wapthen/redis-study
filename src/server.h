@@ -244,15 +244,21 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_FORCE_AOF (1<<14)   /* Force AOF propagation of current cmd. */
 #define CLIENT_FORCE_REPL (1<<15)  /* Force replication of current cmd. */
 #define CLIENT_PRE_PSYNC (1<<16)   /* Instance don't understand PSYNC. */
+/* In this mode slaves will not redirect clients as long as clients access
+ * with read-only commands to keys that are served by the slave's master. */
 #define CLIENT_READONLY (1<<17)    /* Cluster client is in read-only state. */
 #define CLIENT_PUBSUB (1<<18)      /* Client is in Pub/Sub mode. */
 #define CLIENT_PREVENT_AOF_PROP (1<<19)  /* Don't propagate to AOF. */
 #define CLIENT_PREVENT_REPL_PROP (1<<20)  /* Don't propagate to slaves. */
 #define CLIENT_PREVENT_PROP (CLIENT_PREVENT_AOF_PROP|CLIENT_PREVENT_REPL_PROP)
+// 标识一个client, 已有待写的数据,但是还没有安装socket写句柄
 #define CLIENT_PENDING_WRITE (1<<21) /* Client has output to send but a write
                                         handler is yet not installed. */
+// 禁止将回复数据发送给client
 #define CLIENT_REPLY_OFF (1<<22)   /* Don't send replies to client. */
+// 对下一个命令设置CLIENT_REPLY_SKIP标记
 #define CLIENT_REPLY_SKIP_NEXT (1<<23)  /* Set CLIENT_REPLY_SKIP for next cmd */
+// 禁止发送当前这个回复
 #define CLIENT_REPLY_SKIP (1<<24)  /* Don't send just this reply. */
 #define CLIENT_LUA_DEBUG (1<<25)  /* Run EVAL in debug mode. */
 #define CLIENT_LUA_DEBUG_SYNC (1<<26)  /* EVAL debugging without fork() */
@@ -703,7 +709,7 @@ typedef struct blockingState {
                              * is > timeout then the operation timed out. */
 
     /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM */
-    // 存放阻塞操作锁对应的key
+    // 存放阻塞操作所对应的key
     dict *keys;             /* The keys we are waiting to terminate a blocking
                              * operation such as BLPOP or XREAD. Or NULL. */
     robj *target;           /* The key that should receive the element,
@@ -1023,7 +1029,7 @@ struct redisServer {
     list *clients;              /* List of active clients */
     // 异步待释放的client链表
     list *clients_to_close;     /* Clients to close asynchronously */
-    // 记录需要将响应发送给对方的client链表
+    // 链表里记录着待安装write句柄的client
     list *clients_pending_write; /* There is to write or install handler. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client; /* Current client, only used on crash report */

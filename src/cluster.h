@@ -30,13 +30,20 @@
 #define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
 
 /* Redirection errors returned by getNodeByQuery(). */
-// 
+// 重定向结果类别
+// 正常
 #define CLUSTER_REDIR_NONE 0          /* Node can serve the request. */
+// 不同的key处于不同的slot中
 #define CLUSTER_REDIR_CROSS_SLOT 1    /* -CROSSSLOT request. */
+// 多key在导入中,其中有的key还未导入,不稳定,可以后续再试.
 #define CLUSTER_REDIR_UNSTABLE 2      /* -TRYAGAIN redirection required */
+// 需到其他节点询问,表示目前处于迁移外部节点中,而且此key已经迁移走
 #define CLUSTER_REDIR_ASK 3           /* -ASK redirection required. */
+// 该slot是由其他主节点负责
 #define CLUSTER_REDIR_MOVED 4         /* -MOVED redirection required. */
+// 集群状态处于down中
 #define CLUSTER_REDIR_DOWN_STATE 5    /* -CLUSTERDOWN, global state. */
+// 此槽位没有主节点负责
 #define CLUSTER_REDIR_DOWN_UNBOUND 6  /* -CLUSTERDOWN, unbound slot. */
 
 struct clusterNode;
