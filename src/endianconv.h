@@ -75,7 +75,8 @@ uint64_t intrev64(uint64_t v);
 #define htonu64(v) (v)
 #define ntohu64(v) (v)
 #else
-// 小尾体系转为网络字节序即大尾
+// 本机为小尾体系
+// 网络传输数据统一为大尾,所以对于本机小尾数据发送到网络上,需要转位;收到网络的大尾数据需要转为本机的小尾数据使用
 #define htonu64(v) intrev64(v)
 #define ntohu64(v) intrev64(v)
 #endif

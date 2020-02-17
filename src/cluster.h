@@ -60,15 +60,20 @@ typedef struct clusterLink {
     // tcp 接收缓冲区             
     sds rcvbuf;                 /* Packet reception buffer */
     // 指向本link代表的对端node节点,实际的node节点存在与clusterState里的node字典中
+    // 注意此node可能为null
+    // 为null,表示此link是当前tcp启动期间里是被动呼起
+    // 不为null,表示此link时当前tcp启动期间时主动发起
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
 } clusterLink;
 
 /* Cluster node flags and macros. */
 // 集群中单个节点状态
+// 如无配置文件,节点自启动时默认为主节点
 #define CLUSTER_NODE_MASTER 1     /* The node is a master */
 #define CLUSTER_NODE_SLAVE 2      /* The node is a slave */
 #define CLUSTER_NODE_PFAIL 4      /* Failure? Need acknowledge */
 #define CLUSTER_NODE_FAIL 8       /* The node is believed to be malfunctioning */
+// node字典里标注当前节点的标志
 #define CLUSTER_NODE_MYSELF 16    /* This node is myself */
 // 需要跟该node节点进行握手识别
 #define CLUSTER_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
@@ -118,6 +123,7 @@ typedef struct clusterLink {
  * while MEET is a special PING that forces the receiver to add the sender
  * as a node (if it is not already in the list). */
 // 用于集群消息交换的消息类别
+// ping,pong,meet是相同格式的数据,只有type类型的差别,另外收到meet消息需要无条件的将发送方节点添加到集群中
 #define CLUSTERMSG_TYPE_PING 0          /* Ping */
 #define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
 #define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
@@ -190,9 +196,11 @@ typedef struct clusterNode {
     mstime_t pong_received;  /* Unix time we received the pong */
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
+    // 当前节点收到最新复制偏移量数据的时刻
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
     // 主节点判定为孤儿主节点的时刻
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
+    // 当前节点最新的复制偏移量
     long long repl_offset;      /* Last known repl offset for this node. */
     // 节点的ip地址
     char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */

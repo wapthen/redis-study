@@ -486,7 +486,7 @@ void clusterUpdateMyselfFlags(void) {
 
 // 初始化集群数据结构:clusterState
 void clusterInit(void) {
-    // 是否保存过配置文件
+    // 表示是否需要保存配置文件
     int saveconf = 0;
 
     server.cluster = zmalloc(sizeof(clusterState));
@@ -694,7 +694,7 @@ void freeClusterLink(clusterLink *link) {
     zfree(link);
 }
 
-// 有client链接cluster监听端口时的回调函数
+// client链接cluster监听端口时的回调函数
 #define MAX_CLUSTER_ACCEPTS_PER_CALL 1000
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
@@ -1382,6 +1382,9 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
 /* This function is called only if a node is marked as FAIL, but we are able
  * to reach it again. It checks if there are the conditions to undo the FAIL
  * state. */
+// 指定节点之前处于FAIL,而目前收到了PONG消息
+// 如果指定节点是备节点 or 不负责任何槽位时,可以去除掉FAIL标记
+// 如果指定节点是主节点 且 负责某些槽位 且 从上一次FAIL到目前的时长超过2nodetime,也可以去掉FAIL标记
 void clearNodeFailureIfNeeded(clusterNode *node) {
     mstime_t now = mstime();
 
@@ -1689,7 +1692,7 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
 /* Reconfigure the specified node 'n' as a master. This function is called when
  * a node that we believed to be a slave is now acting as master in order to
  * update the state of the node. */
-// 将本节点置为master
+// 将指定节点置为master
 void clusterSetNodeAsMaster(clusterNode *n) {
     // 已经是主节点情况下,直接返回
     if (nodeIsMaster(n)) return;
@@ -1832,6 +1835,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
  * processing lead to some inconsistency error (for instance a PONG
  * received from the wrong sender ID). */
 // 处理一个完整clustermessage入口函数
+// 注意此函数内部在某些异常的场景下,会释放link内存,并返回0
 int clusterProcessPacket(clusterLink *link) {
     clusterMsg *hdr = (clusterMsg*) link->rcvbuf;
     uint32_t totlen = ntohl(hdr->totlen);
@@ -2009,9 +2013,11 @@ int clusterProcessPacket(clusterLink *link) {
             type == CLUSTERMSG_TYPE_PING ? "ping" : "pong",
             (void*)link->node);
         if (link->node) {
+            // 表示主动发起方收到响应
             if (nodeInHandshake(link->node)) {
                 /* If we already have this node, try to change the
                  * IP/port of the node with the new one. */
+                // TODO 如下这个sender逻辑的用途是??
                 if (sender) {
                     serverLog(LL_VERBOSE,
                         "Handshake: we already know node %.40s, "
@@ -2034,7 +2040,7 @@ int clusterProcessPacket(clusterLink *link) {
                     link->node->name);
                 // 节点已经完成握手
                 link->node->flags &= ~CLUSTER_NODE_HANDSHAKE;
-                // 设置本节点为主or备
+                // 根据消息头里的sender标记设置主or备
                 link->node->flags |= flags&(CLUSTER_NODE_MASTER|CLUSTER_NODE_SLAVE);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
             } else if (memcmp(link->node->name,hdr->sender,
@@ -2083,7 +2089,7 @@ int clusterProcessPacket(clusterLink *link) {
 
         /* Update our info about the node */
         if (link->node && type == CLUSTERMSG_TYPE_PONG) {
-            // 收到针对之前PING的应答PONG消息,更细本地的标记
+            // 主动发起方收到的之前PING的应答PONG消息,更新本地的标记
             link->node->pong_received = mstime();
             link->node->ping_sent = 0;
 
@@ -2114,6 +2120,7 @@ int clusterProcessPacket(clusterLink *link) {
                 clusterNode *master = clusterLookupNode(hdr->slaveof);
 
                 if (nodeIsMaster(sender)) {
+                    // 本地记录中显示sender之前是主节点,但是收到的数据显示表示已经为备节点
                     /* Master turned into a slave! Reconfigure the node. */
                     clusterDelNodeSlots(sender);
                     sender->flags &= ~(CLUSTER_NODE_MASTER|
@@ -2127,6 +2134,7 @@ int clusterProcessPacket(clusterLink *link) {
 
                 /* Master node changed for this slave? */
                 if (master && sender->slaveof != master) {
+                    // sender节点是备节点,但是隶属于的主节点变了
                     if (sender->slaveof)
                         clusterNodeRemoveSlave(sender->slaveof,sender);
                     clusterNodeAddSlave(master,sender);
