@@ -38,6 +38,7 @@
 
 /* The current RDB version. When the format changes in a way that is no longer
  * backward compatible this number gets incremented. */
+// rdb格式版本,注意rdb不会后向兼容旧格式的数据
 #define RDB_VERSION 9
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
@@ -54,11 +55,12 @@
  *
  * Lengths up to 63 are stored using a single byte, most DB keys, and may
  * values, will fit inside. */
+// 存储长度的编码方式
 #define RDB_6BITLEN 0
 #define RDB_14BITLEN 1
 #define RDB_32BITLEN 0x80
 #define RDB_64BITLEN 0x81
-#define RDB_ENCVAL 3
+#define RDB_ENCVAL 3 // 最高两位11,表示随后的6位隶属于RDB_ENC_*里的一种
 #define RDB_LENERR UINT64_MAX
 
 /* When a length of a string object stored on disk has the first two bits
@@ -98,7 +100,7 @@
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_MODULE_AUX 247   /* Module auxiliary data. */
-#define RDB_OPCODE_IDLE       248   /* LRU idle time. */
+#define RDB_OPCODE_IDLE       248   /* LRU idle time. */ // 秒级别
 #define RDB_OPCODE_FREQ       249   /* LFU frequency. */
 #define RDB_OPCODE_AUX        250   /* RDB aux field. */
 #define RDB_OPCODE_RESIZEDB   251   /* Hash table resize hint. */

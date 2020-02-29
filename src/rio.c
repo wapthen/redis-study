@@ -147,10 +147,11 @@ static const rio rioFileIO = {
     NULL,           /* update_checksum */
     0,              /* current checksum */
     0,              /* bytes read or written */
-    0,              /* read/write chunk size */
+    0,              /* signle max read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
 
+// 对入参rio进行初始化,并设置其中的文件句柄为fp
 void rioInitWithFile(rio *r, FILE *fp) {
     *r = rioFileIO;
     r->io.file.fp = fp;
@@ -288,6 +289,7 @@ void rioFreeFdset(rio *r) {
 
 /* This function can be installed both in memory and file streams when checksum
  * computation is needed. */
+// rdb文件所需的完整性校验函数
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
     r->cksum = crc64(r->cksum,buf,len);
 }
@@ -300,6 +302,7 @@ void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
  * buffers sometimes the OS buffers way too much, resulting in too many
  * disk I/O concentrated in very little time. When we fsync in an explicit
  * way instead the I/O pressure is more distributed across time. */
+ // 设置rio里的主动刷盘数值,后续在写文件时,每隔指定的bytes字节主动执行一次fdatasync刷盘动作
 void rioSetAutoSync(rio *r, off_t bytes) {
     serverAssert(r->read == rioFileIO.read);
     r->io.file.autosync = bytes;

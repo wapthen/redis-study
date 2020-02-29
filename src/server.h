@@ -110,6 +110,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_REPL_BACKLOG_SIZE (1024*1024)    /* 1mb */
 #define CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT (60*60)  /* 1 hour */
 #define CONFIG_REPL_BACKLOG_MIN_SIZE (1024*16)          /* 16k */
+// rdb保存的最低间隔时长
 #define CONFIG_BGSAVE_RETRY_DELAY 5 /* Wait a few secs before trying again. */
 #define CONFIG_DEFAULT_PID_FILE "/var/run/redis.pid"
 #define CONFIG_DEFAULT_SYSLOG_IDENT "redis"
@@ -650,6 +651,7 @@ typedef struct redisObject {
  * Note that this macro is taken near the structure definition to make sure
  * we'll update it when the structure is changed, to avoid bugs like
  * bug #85 introduced exactly in this way. */
+// 宏, 初始化obj对象为原生字符串
 #define initStaticStringObject(_var,_ptr) do { \
     _var.refcount = 1; \
     _var.type = OBJ_STRING; \
@@ -779,7 +781,7 @@ typedef struct client {
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
-    // 跟主节点最新一次交互的时刻
+    // 跟节点最新一次交互的时刻
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     // 响应消息reply-list内存 初次 超过软限值的时刻，需要连续超过才有效，中间有一次未超过软限值时，此值清0
     time_t obuf_soft_limit_reached_time;
@@ -819,7 +821,9 @@ typedef struct client {
 } client;
 
 struct saveparam {
+    // 时间段
     time_t seconds;
+    // 变化
     int changes;
 };
 
@@ -979,8 +983,10 @@ struct clusterState;
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
+    // 配置文件的绝对路径
     char *configfile;           /* Absolute config file path, or NULL */
     char *executable;           /* Absolute executable file path. */
+    // 启动程序时的入参拷贝
     char **exec_argv;           /* Executable argv vector (copy). */
     int dynamic_hz;             /* Change hz value depending on # of clients. */
     int config_hz;              /* Configured HZ value. May be different than
@@ -1000,8 +1006,10 @@ struct redisServer {
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
+    // 根据启动时的命令参数,决定是否时哨兵模式
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
+    // 配置文件中设置的是否强制展示logo
     int always_show_logo;       /* Show logo even for non-stdout logging. */
     /* Modules */
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
@@ -1014,7 +1022,9 @@ struct redisServer {
     /* Networking */
     int port;                   /* TCP listening port */
     int tcp_backlog;            /* TCP listen() backlog */
+    // 进程绑定ip地址
     char *bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses we should bind to */
+    // 进程绑定ip地址个数,只受配置文件中的bind参数影响
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
@@ -1042,6 +1052,7 @@ struct redisServer {
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     // 全局记录的下一个clientId序号
     uint64_t next_client_id;    /* Next client unique ID. Incremental. */
+    // 是否为保护模式,1为保护模式,0为非保护模式
     int protected_mode;         /* Don't accept external connections. */
     /* RDB / AOF loading information */
     // 当前处于启动加载数据过程中
@@ -1101,7 +1112,9 @@ struct redisServer {
     } inst_metric[STATS_METRIC_COUNT];
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
+    // client连接的超时时间
     int maxidletime;                /* Client timeout in seconds */
+    // tcp keepalive参数
     int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. */
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
     int active_defrag_enabled;
@@ -1113,7 +1126,9 @@ struct redisServer {
     unsigned long active_defrag_max_scan_fields; /* maximum number of fields of set/hash/zset/list to process from within the main dict scan */
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
+    // 是否开启监督通知
     int supervised;                 /* 1 if supervised, 0 otherwise. */
+    // 监督通信模式
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
     // client内存限值配置参数：client分为3类：正常，从节点，订阅pubsub类型
@@ -1157,6 +1172,7 @@ struct redisServer {
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
     // 在子进程进行rewrite aof期间对于刷盘策略控制,如果开启,则每满REDIS_AUTOSYNC_BYTES 32MB进行一次刷盘
     int aof_rewrite_incremental_fsync;/* fsync incrementally while aof rewriting? */
+    // 在子进程进行rdb期间对刷盘策略进行控制,如果开启,则每满REDIS_AUTOSYNC_BYTES 32MB进行一次刷盘
     int rdb_save_incremental_fsync;   /* fsync incrementally while rdb saving? */
     // 记录主进程最新一次aof write aof_buf是否成功
     int aof_last_write_status;      /* C_OK or C_ERR */
@@ -1180,21 +1196,32 @@ struct redisServer {
     // 子进程里用于接收主进程发送的diff命令数据
     sds aof_child_diff;             /* AOF diff accumulator child side. */
     /* RDB persistence */
+    // 自从上一次成功rdb至今的改动次数
     long long dirty;                /* Changes to DB from the last save */
+    // 在rdb进行前保存当时的dirty数据,以用于在rdb失败时回滚使用
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     pid_t rdb_child_pid;            /* PID of RDB saving child */
+    // rdb保存点阈值
     struct saveparam *saveparams;   /* Save points array for RDB */
+    // rdb保存点阈值数组个数
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
+    // 是否开启rdb压缩保存
     int rdb_compression;            /* Use compression in RDB? */
+    // 是否开启rdb文件的校验设置
     int rdb_checksum;               /* Use RDB checksum? */
+    // 最近一次save完毕且成功的时刻
     time_t lastsave;                /* Unix time of last successful save */
+    // 最近一次尝试开始save的时刻,表示尝试执行,但是不一定成功
     time_t lastbgsave_try;          /* Unix time of last attempted bgsave */
     time_t rdb_save_time_last;      /* Time used by last RDB save run. */
     time_t rdb_save_time_start;     /* Current RDB save start time. */
+    // 在当前aof rewrite进程完毕后立即执行一次rdb
     int rdb_bgsave_scheduled;       /* BGSAVE when possible if true. */
     int rdb_child_type;             /* Type of save by active child. */
+    // 最新的rdb save结果
     int lastbgsave_status;          /* C_OK or C_ERR */
+    // 当异步rdb失败时,是否停止接收用户的写请求
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
     int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
@@ -1315,9 +1342,12 @@ struct redisServer {
     int list_max_ziplist_size;
     int list_compress_depth;
     /* time cache */
+    // 秒级时钟
     time_t unixtime;    /* Unix time sampled every cron cycle. */ // 单位是秒级
     time_t timezone;    /* Cached timezone. As set by tzset(). */
+    // 当前服务器是否开启冬夏令时
     int daylight_active;    /* Currently in daylight saving time. */
+    // 毫秒级时钟
     long long mstime;   /* Like 'unixtime' but with milliseconds resolution. */
     /* Pubsub */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */

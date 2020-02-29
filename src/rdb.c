@@ -69,6 +69,7 @@ void rdbCheckThenExit(int linenum, char *reason, ...) {
     exit(1);
 }
 
+// 向rdb文件写入指定长度的数据
 static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
@@ -87,6 +88,7 @@ void rdbLoadRaw(rio *rdb, void *buf, uint64_t len) {
     }
 }
 
+// 向rdb文件中写入一个字节, 以记录一些特殊标识
 int rdbSaveType(rio *rdb, unsigned char type) {
     return rdbWriteRaw(rdb,&type,1);
 }
@@ -137,6 +139,8 @@ long long rdbLoadMillisecondTime(rio *rdb, int rdbver) {
 /* Saves an encoded length. The first two bits in the first byte are used to
  * hold the encoding type. See the RDB_* definitions for more information
  * on the types of encoding. */
+// 将长度数据写入到rdb中,根据数据的长度进行合适的编码写入文件
+// 内部会将数据统一转为大尾格式
 int rdbSaveLen(rio *rdb, uint64_t len) {
     unsigned char buf[2];
     size_t nwritten;
@@ -147,6 +151,7 @@ int rdbSaveLen(rio *rdb, uint64_t len) {
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
         nwritten = 1;
     } else if (len < (1<<14)) {
+        // 大尾数据
         /* Save a 14 bit len */
         buf[0] = ((len>>8)&0xFF)|(RDB_14BITLEN<<6);
         buf[1] = len&0xFF;
@@ -156,6 +161,7 @@ int rdbSaveLen(rio *rdb, uint64_t len) {
         /* Save a 32 bit len */
         buf[0] = RDB_32BITLEN;
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
+        // 转为大尾格式
         uint32_t len32 = htonl(len);
         if (rdbWriteRaw(rdb,&len32,4) == -1) return -1;
         nwritten = 1+4;
@@ -231,6 +237,7 @@ uint64_t rdbLoadLen(rio *rdb, int *isencoded) {
  * for encoded types. If the function successfully encodes the integer, the
  * representation is stored in the buffer pointer to by "enc" and the string
  * length is returned. Otherwise 0 is returned. */
+// 供rdb过程使用,将整型数据进行编码,保存到enc中
 int rdbEncodeInteger(long long value, unsigned char *enc) {
     if (value >= -(1<<7) && value <= (1<<7)-1) {
         enc[0] = (RDB_ENCVAL<<6)|RDB_ENC_INT8;
@@ -297,17 +304,22 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
 /* String objects in the form "2391" "-100" without any space and with a
  * range of values that can fit in an 8, 16 or 32 bit signed value can be
  * encoded as integers to save space */
+// 尝试将待写入字符数据转为整型保存,以节省空间
 int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     long long value;
     char *endptr, buf[32];
 
     /* Check if it's possible to encode this value as a number */
+    // 尝试将s字符串转为10进制整型
     value = strtoll(s, &endptr, 10);
+    // 转换失败
     if (endptr[0] != '\0') return 0;
+    // 将整型转为字符串型
     ll2string(buf,32,value);
 
     /* If the number converted back into a string is not identical
      * then it's not possible to encode the string as integer */
+    // 比较转型前后数据是否一致
     if (strlen(buf) != len || memcmp(buf,s,len)) return 0;
 
     return rdbEncodeInteger(value,enc);
@@ -338,6 +350,7 @@ writeerr:
     return -1;
 }
 
+// 尽可能使用lzf压缩字符串进行数据保存,如果压缩失败,则返回0;如果写入数据失败返回-1
 ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
     size_t comprlen, outlen;
     void *out;
@@ -402,12 +415,14 @@ err:
 
 /* Save a string object as [len][data] on disk. If the object is a string
  * representation of an integer value we try to save it in a special form */
+// 向rdb文件里写入指定长度的数据
 ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     int enclen;
     ssize_t n, nwritten = 0;
 
     /* Try integer encoding */
     if (len <= 11) {
+        // 尝试将待写入数据转为int型写入文件, buf就是int型数据的存储空间
         unsigned char buf[5];
         if ((enclen = rdbTryIntegerEncoding((char*)s,len,buf)) > 0) {
             if (rdbWriteRaw(rdb,buf,enclen) == -1) return -1;
@@ -417,6 +432,7 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
 
     /* Try LZF compression - under 20 bytes it's unable to compress even
      * aaaaaaaaaaaaaaaaaa so skip it */
+    // 只在长度超过20时,才开启字符串压缩
     if (server.rdb_compression && len > 20) {
         n = rdbSaveLzfStringObject(rdb,s,len);
         if (n == -1) return -1;
@@ -454,6 +470,7 @@ ssize_t rdbSaveLongLongAsStringObject(rio *rdb, long long value) {
 }
 
 /* Like rdbSaveRawString() gets a Redis object instead. */
+// 将指定的string对象保存到rdb文件中
 ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
     /* Avoid to decode the object, then encode it again, if the
      * object is already integer encoded. */
@@ -622,6 +639,7 @@ int rdbLoadBinaryFloatValue(rio *rdb, float *val) {
 }
 
 /* Save the object type of object "o". */
+// 向rdb文件中保存value的类型
 int rdbSaveObjectType(rio *rdb, robj *o) {
     switch (o->type) {
     case OBJ_STRING:
@@ -751,6 +769,7 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
 
 /* Save a Redis object.
  * Returns -1 on error, number of bytes written on success. */
+// 保存实际的key-value数据到rdb中
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
     ssize_t n = 0, nwritten = 0;
 
@@ -1005,10 +1024,12 @@ size_t rdbSavedObjectLen(robj *o) {
  * On error -1 is returned.
  * On success if the key was actually saved 1 is returned, otherwise 0
  * is returned (the key was already expired). */
+// rdb文件中保存key-value数据对
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
 
+    // 先保存过期时间
     /* Save the expire time */
     if (expiretime != -1) {
         if (rdbSaveType(rdb,RDB_OPCODE_EXPIRETIME_MS) == -1) return -1;
@@ -1107,24 +1128,28 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     uint64_t cksum;
     size_t processed = 0;
 
+    // 开启rdb文件的完整性校验机制,则设置对应的函数指针
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;
+    // rdb文件开头是放置9个字节长度的版本信息
     snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
     if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
     if (rdbSaveInfoAuxFields(rdb,flags,rsi) == -1) goto werr;
 
+    // 逐个库遍历每个key进行存储
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         dict *d = db->dict;
+        // 当前库为空,则跳过
         if (dictSize(d) == 0) continue;
+        // 获取一个安全迭代器
         di = dictGetSafeIterator(d);
 
         /* Write the SELECT DB opcode */
         if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
         if (rdbSaveLen(rdb,j) == -1) goto werr;
 
-        /* Write the RESIZE DB opcode. We trim the size to UINT32_MAX, which
-         * is currently the largest type we are able to represent in RDB sizes.
+        /* Write the RESIZE DB opcode. 
          * However this does not limit the actual size of the DB to load since
          * these sizes are just hints to resize the hash tables. */
         uint64_t db_size, expires_size;
@@ -1135,6 +1160,7 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
         if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
 
         /* Iterate this DB writing every entry */
+        // 遍历当前dict里的每一个key
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
@@ -1216,6 +1242,7 @@ werr: /* Write error. */
 }
 
 /* Save the DB on disk. Return C_ERR on error, C_OK on success. */
+// 子进程保存rdb数据的函数入口
 int rdbSave(char *filename, rdbSaveInfo *rsi) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
@@ -1236,11 +1263,13 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
         return C_ERR;
     }
 
+    // 对rdb结构体进行初始化
     rioInitWithFile(&rdb,fp);
 
     if (server.rdb_save_incremental_fsync)
         rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
 
+    // 实际进行rdb的函数入口
     if (rdbSaveRio(&rdb,&error,RDB_SAVE_NONE,rsi) == C_ERR) {
         errno = error;
         goto werr;
@@ -1248,11 +1277,13 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
 
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp) == EOF) goto werr;
+    // 执行刷盘
     if (fsync(fileno(fp)) == -1) goto werr;
     if (fclose(fp) == EOF) goto werr;
 
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
+    // 对临时rdb文件进行改名操作
     if (rename(tmpfile,filename) == -1) {
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
@@ -1267,6 +1298,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     }
 
     serverLog(LL_NOTICE,"DB saved on disk");
+    // rdb保存成功,将一些统计字段进行设置
     server.dirty = 0;
     server.lastsave = time(NULL);
     server.lastbgsave_status = C_OK;
@@ -1279,10 +1311,11 @@ werr:
     return C_ERR;
 }
 
+// 后台rdb保存函数入口
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
     long long start;
-
+    // 校验当前无后台子进程在进行rdb or aof
     if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
 
     server.dirty_before_bgsave = server.dirty;
@@ -2419,8 +2452,10 @@ void bgsaveCommand(client *c) {
     rsiptr = rdbPopulateSaveInfo(&rsi);
 
     if (server.rdb_child_pid != -1) {
+        // 当前后台已经有一个rdb save进程在运行
         addReplyError(c,"Background save already in progress");
     } else if (server.aof_child_pid != -1) {
+        // 当前后台有一个aof rewrite进程在运行
         if (schedule) {
             server.rdb_bgsave_scheduled = 1;
             addReplyStatus(c,"Background saving scheduled");

@@ -660,6 +660,7 @@ sds getAbsolutePath(char *filename) {
                 p--;
                 trimlen++;
             }
+            // 此处+1是将abspath末尾的/也抹去
             sdsrange(abspath,0,-(trimlen+1));
         }
     }

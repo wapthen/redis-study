@@ -52,25 +52,31 @@ struct _rio {
     void (*update_cksum)(struct _rio *, const void *buf, size_t len);
 
     /* The current checksum */
+    // 当前已计算出来的校验数据
     uint64_t cksum;
 
     /* number of bytes read or written */
+    // 已完成读/写的字节长度
     size_t processed_bytes;
 
     /* maximum single read or write chunk size */
+    // 单次读/写操作的最大字节长度
     size_t max_processing_chunk;
 
     /* Backend-specific vars. */
     union {
         /* In-memory buffer target. */
         struct {
+            // 游标指向
             sds ptr;
+            // 位置偏移量
             off_t pos;
         } buffer;
         /* Stdio file pointer target. */
         struct {
+            // 文件句柄
             FILE *fp;
-            // 自从上一次刷盘之后到现在已落盘的字节数
+            // 自从上一次刷盘之后到现在已落盘但是未刷盘的字节数
             off_t buffered; /* Bytes written since last fsync. */
             // 间隔多久执行一次主动刷盘操作,如果为0表示不主动刷盘.
             off_t autosync; /* fsync after 'autosync' bytes written. */

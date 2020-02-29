@@ -777,12 +777,12 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  */
 // 从sds存储数据头尾剔除指定的字符集
 sds sdstrim(sds s, const char *cset) {
-    char *start, *end, *sp, *ep;
+    char *sp, *ep;
     size_t len;
 
-    sp = start = s;
-    ep = end = s+sdslen(s)-1;
-    while(sp <= end && strchr(cset, *sp)) sp++;
+    sp = s;
+    ep = s+sdslen(s)-1;
+    while(sp <= ep && strchr(cset, *sp)) sp++;
     while(ep > sp && strchr(cset, *ep)) ep--;
     len = (sp > ep) ? 0 : ((ep-sp)+1);
     // 将符合数据的位置前移置开头

@@ -712,6 +712,7 @@ int clientHasPendingReplies(client *c) {
 
 #define MAX_ACCEPTS_PER_CALL 1000
 // 创建一个新的client，如果不符合邀请，则直接将错误信息发送到套接字里，并释放client
+// 入参fd ip均为对方的信息
 static void acceptCommonHandler(int fd, int flags, char *ip) {
     client *c;
     if ((c = createClient(fd)) == NULL) {

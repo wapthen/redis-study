@@ -529,9 +529,18 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
     snprintf(_port,6,"%d",port);
     memset(&hints,0,sizeof(hints));
     hints.ai_family = af;
+    // tcp协议
     hints.ai_socktype = SOCK_STREAM;
+    // 被动模式,即可以用于listen的地址
     hints.ai_flags = AI_PASSIVE;    /* No effect if bindaddr != NULL */
 
+    /**
+     * If the AI_PASSIVE flag is specified in hints.ai_flags, and node is
+       NULL, then the returned socket addresses will be suitable for
+       bind(2)ing a socket that will accept(2) connections.  The returned
+       socket address will contain the "wildcard address" (INADDR_ANY for
+       IPv4 addresses, IN6ADDR_ANY_INIT for IPv6 address). 
+    */
     if ((rv = getaddrinfo(bindaddr,_port,&hints,&servinfo)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
@@ -596,17 +605,17 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
  * socket句柄s用于accept，此函数统一处理信号中断,确保accept重调用
  * 原始的accept函数如下说明：
  * If no pending connections are present on the queue, and the socket is
- *      not marked as nonblocking, accept() blocks the caller until a
- *     connection is present.  If the socket is marked nonblocking and no
- *      pending connections are present on the queue, accept() fails with the
- *      error EAGAIN or EWOULDBLOCK.
+ *  not marked as nonblocking, accept() blocks the caller until a
+ * connection is present.  If the socket is marked nonblocking and no
+ *  pending connections are present on the queue, accept() fails with the
+ *  error EAGAIN or EWOULDBLOCK.
  */
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     while(1) {
         fd = accept(s,sa,len);
         if (fd == -1) {
-            // 只处理被信号中断的场景，至于无tcp链接时，则向外抛EAGAIN
+            // 只处理被信号中断的场景，对于暂无tcp链接时则向外抛错,且errno为EAGAIN
             if (errno == EINTR)
                 continue;
             else {

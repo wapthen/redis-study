@@ -812,6 +812,8 @@ long long getInstantaneousMetric(int metric) {
  * The function gets the current time in milliseconds as argument since
  * it gets called multiple times in a loop, so calling gettimeofday() for
  * each iteration would be costly without any actual gain. */
+// 对于非阻塞模式下的client,校验是否已经超过指定的timeout配置参数
+// 对于阻塞模式下的client,校验是否已经超过阻塞超时时刻
 int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     time_t now = now_ms/1000;
 
@@ -837,6 +839,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
         } else if (server.cluster_enabled) {
             /* Cluster: handle unblock & redirect of clients blocked
              * into keys no longer served by this server. */
+            //对于处于阻塞中的client,判断此client所用的slot是否依旧由本节点负责, 如果此slot已由其他节点负责,则发送重定向命
             if (clusterRedirectBlockedClientIfNeeded(c))
                 unblockClient(c);
         }
@@ -2845,10 +2848,12 @@ int writeCommandsDeniedByDiskError(void) {
         server.saveparamslen > 0 &&
         server.lastbgsave_status == C_ERR)
     {
+        // 开启 异步rdb失败时终止接收用户写请求, 且用户设置了保存点参数, 而且最近一次rdb保存失败,则终止接收写请求
         return DISK_ERROR_TYPE_RDB;
     } else if (server.aof_state != AOF_OFF &&
                server.aof_last_write_status == C_ERR)
     {
+        // 最新一次aof失败,在开启aof的情况下,终止接收用户的写请求
         return DISK_ERROR_TYPE_AOF;
     } else {
         return DISK_ERROR_TYPE_NONE;
