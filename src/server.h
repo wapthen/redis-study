@@ -1057,9 +1057,13 @@ struct redisServer {
     /* RDB / AOF loading information */
     // 当前处于启动加载数据过程中
     int loading;                /* We are loading data from disk if true */
+    // 需加载的全部字节数
     off_t loading_total_bytes;
+    // 已经加载的字节数
     off_t loading_loaded_bytes;
+    // 数据加载开始时刻
     time_t loading_start_time;
+    // 加载数据文件时,单次读数据的最大字节数, 固定值2MB
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
     struct redisCommand *delCommand, *multiCommand, *lpushCommand,

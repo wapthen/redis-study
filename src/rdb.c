@@ -96,6 +96,7 @@ int rdbSaveType(rio *rdb, unsigned char type) {
 /* Load a "type" in RDB format, that is a one byte unsigned integer.
  * This function is not only used to load object types, but also special
  * "types" like the end-of-file type, the EXPIRE type, and so forth. */
+// 加载一个字节的数据,含义为type
 int rdbLoadType(rio *rdb) {
     unsigned char type;
     if (rioRead(rdb,&type,1) == 0) return -1;
@@ -186,16 +187,19 @@ int rdbSaveLen(rio *rdb, uint64_t len) {
  * encodings.
  *
  * The function returns -1 on error, 0 on success. */
+// 根据第一个字节最高2位类别,决定如何读取数据, 如果开头2位时11,则lenptr存储的是编码类别;否则存储的是长度
 int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr) {
     unsigned char buf[2];
     int type;
 
     if (isencoded) *isencoded = 0;
     if (rioRead(rdb,buf,1) == 0) return -1;
+    // 取出最开头的两位,用于判定长度类别
     type = (buf[0]&0xC0)>>6;
     if (type == RDB_ENCVAL) {
         /* Read a 6 bit encoding type. */
         if (isencoded) *isencoded = 1;
+        // 取出第一个字节的末尾6位数据
         *lenptr = buf[0]&0x3F;
     } else if (type == RDB_6BITLEN) {
         /* Read a 6 bit len. */
@@ -203,11 +207,13 @@ int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr) {
     } else if (type == RDB_14BITLEN) {
         /* Read a 14 bit len. */
         if (rioRead(rdb,buf+1,1) == 0) return -1;
+        // 转为小尾
         *lenptr = ((buf[0]&0x3F)<<8)|buf[1];
     } else if (buf[0] == RDB_32BITLEN) {
         /* Read a 32 bit len. */
         uint32_t len;
         if (rioRead(rdb,&len,4) == 0) return -1;
+        // 转为小尾
         *lenptr = ntohl(len);
     } else if (buf[0] == RDB_64BITLEN) {
         /* Read a 64 bit len. */
@@ -226,6 +232,7 @@ int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr) {
  * from the RDB stream, signaling an error by returning RDB_LENERR
  * (since it is a too large count to be applicable in any Redis data
  * structure). */
+// 读取rdb的长度相关数据
 uint64_t rdbLoadLen(rio *rdb, int *isencoded) {
     uint64_t len;
 
@@ -238,6 +245,7 @@ uint64_t rdbLoadLen(rio *rdb, int *isencoded) {
  * representation is stored in the buffer pointer to by "enc" and the string
  * length is returned. Otherwise 0 is returned. */
 // 供rdb过程使用,将整型数据进行编码,保存到enc中
+// 注意:将整型保存为小尾格式的字符数组
 int rdbEncodeInteger(long long value, unsigned char *enc) {
     if (value >= -(1<<7) && value <= (1<<7)-1) {
         enc[0] = (RDB_ENCVAL<<6)|RDB_ENC_INT8;
@@ -271,16 +279,19 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
     long long val;
 
     if (enctype == RDB_ENC_INT8) {
+        // 一个字节长度
         if (rioRead(rdb,enc,1) == 0) return NULL;
         val = (signed char)enc[0];
     } else if (enctype == RDB_ENC_INT16) {
         uint16_t v;
         if (rioRead(rdb,enc,2) == 0) return NULL;
+        // 两个字节长度
         v = enc[0]|(enc[1]<<8);
         val = (int16_t)v;
     } else if (enctype == RDB_ENC_INT32) {
         uint32_t v;
         if (rioRead(rdb,enc,4) == 0) return NULL;
+        // 加载小尾格式的整型
         v = enc[0]|(enc[1]<<8)|(enc[2]<<16)|(enc[3]<<24);
         val = (int32_t)v;
     } else {
@@ -415,7 +426,8 @@ err:
 
 /* Save a string object as [len][data] on disk. If the object is a string
  * representation of an integer value we try to save it in a special form */
-// 向rdb文件里写入指定长度的数据
+// 向rdb文件里写入指定长度的字符串数据
+// 内部会先尝试将此字符串转为整型,如果可以用整型表示,则直接存为整型数据,编码以11开头
 ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     int enclen;
     ssize_t n, nwritten = 0;
@@ -504,6 +516,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
 
     len = rdbLoadLen(rdb,&isencoded);
     if (isencoded) {
+        // 编码的数据
         switch(len) {
         case RDB_ENC_INT8:
         case RDB_ENC_INT16:
@@ -1833,6 +1846,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
 
 /* Mark that we are loading in the global state and setup the fields
  * needed to provide loading stats. */
+// aof 或者 rdb 均会调用此函数进行加载前的跟踪字段初始化
 void startLoading(FILE *fp) {
     struct stat sb;
 
@@ -1861,6 +1875,8 @@ void stopLoading(void) {
 
 /* Track loading progress in order to serve client's from time to time
    and if needed calculate rdb checksum  */
+// rdb文件加载时,均会调用此函数
+// 用途:1 如果需要校验数据,则进行校验计算; 2 每隔2MB,执行一批处理socket句柄等工作
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     if (server.rdb_checksum)
         rioGenericUpdateChecksum(r, buf, len);
@@ -1880,6 +1896,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
 
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
+// 加载rdb文件入口
 int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
     uint64_t dbid;
     int type, rdbver;
@@ -1888,6 +1905,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
 
     rdb->update_cksum = rdbLoadProgressCallback;
     rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
+    // 加载rdb文件开头的标识与版本
     if (rioRead(rdb,buf,9) == 0) goto eoferr;
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {

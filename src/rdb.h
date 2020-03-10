@@ -41,6 +41,50 @@
 // rdb格式版本,注意rdb不会后向兼容旧格式的数据
 #define RDB_VERSION 9
 
+/**
+ * rdb存储数据采用尽可能少的空间,存储足够多的数据.
+ * redis中存储的多数数据为整型+字符型,注意字符型包括字符串/二进制,可以将字符型数据认为是二进制数组
+ * 一般而言,存储一个data数据的格式是:len data
+ * 但是当data数据可以直接以整型编码时,那么存储一个data数据的格式可以编码为 int,
+ * 例如存储的data是字符串型数据"100000",字符串长度为6,至少需要1个字节存len,6个字节存字符
+ * 如果直接以整型格式存储"100000",只需要1个字节存编码格式,4个字节存数据
+ * 
+ * 基于上述考虑,在存数据时,均会优先考虑转为整型编码,如果不能转,才会按照正常方式存len data
+ * 而头两位为11的,表示字符转为整型进行的编码
+ * If starting bits are 11, then the next object is encoded in a special format.
+ * The remaining 6 bits indicate the format. This encoding is generally used to store numbers as strings, 
+ * or to store encoded strings.
+ */ 
+/**
+ * ----------------------------# RDB is a binary format. There are no new lines or spaces in the file.
+ * 52 45 44 49 53              # Magic String "REDIS"
+ * 30 30 30 37                 # 4 digit ASCCII RDB Version Number. In this case, version = "0007" = 7
+ * ----------------------------
+ * FE 00                       # FE = code that indicates database selector. db number = 00
+ * ----------------------------# Key-Value pair starts
+ * FD $unsigned int            # FD indicates "expiry time in seconds". After that, expiry time is read as a 4 byte unsigned int
+ * $value-type                 # 1 byte flag indicating the type of value - set, map, sorted set etc.
+ * $string-encoded-key         # The key, encoded as a redis string
+ * $encoded-value              # The value. Encoding depends on $value-type
+ * ----------------------------
+ * FC $unsigned long           # FC indicates "expiry time in ms". After that, expiry time is read as a 8 byte unsigned long
+ * $value-type                 # 1 byte flag indicating the type of value - set, map, sorted set etc.
+ * $string-encoded-key         # The key, encoded as a redis string
+ * $encoded-value              # The value. Encoding depends on $value-type
+ * ----------------------------
+ * $value-type                 # This key value pair doesn't have an expiry. $value_type guaranteed != to FD, FC, FE and FF
+ * $string-encoded-key
+ * $encoded-value
+ * ----------------------------
+ * FE $length-encoding         # Previous db ends, next db starts. Database number read using length encoding.
+ * ----------------------------
+ * ...                         # Key value pairs for this database, additonal database
+ *                             
+ * FF                          ## End of RDB file indicator
+ * 8 byte checksum             ## CRC 64 checksum of the entire file.
+ * 
+ */
+
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
  * the first byte to interpreter the length:
