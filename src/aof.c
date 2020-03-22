@@ -106,9 +106,9 @@ unsigned long aofRewriteBufferSize(void) {
  * rewrite. We send pieces of our AOF differences buffer so that the final
  * write when the child finishes the rewrite will be small. */
 /**
- * 用于主进程将块链中累积的命令数据逐一的发送给子进程
+ * 父进程将块链中累积的命令数据逐一的发送给子进程
  * 本函数会一边发送数据一边删除已发送的块节点，如正常结束，则最后块链list无任何节点数据。
- * 主子进程直接通过无名管道方式进行数据交互
+ * 父子进程直接通过无名管道方式进行数据交互
  */
 void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     listNode *ln;
@@ -1758,7 +1758,9 @@ int rewriteAppendOnlyFileBackground(void) {
         }
     } else {
         /* Parent */
+        // TODO stat_fork_rate有可能会引起除0的core风险,此处应该防御一下
         server.stat_fork_time = ustime()-start;
+        server.stat_fork_time = (server.stat_fork_time == 0) ? 1 : server.stat_fork_time;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
         if (childpid == -1) {
@@ -1912,6 +1914,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             oldfd = open(server.aof_filename,O_RDONLY|O_NONBLOCK);
         } else {
             /* AOF enabled */
+            // 旧的aof文件句柄依旧是由server.aof_fd保存着
             oldfd = -1; /* We'll set this to the current AOF filedes later. */
         }
 

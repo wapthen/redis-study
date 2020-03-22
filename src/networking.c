@@ -1011,6 +1011,7 @@ void freeClientAsync(client *c) {
     listAddNodeTail(server.clients_to_close,c);
 }
 
+// 异步关闭client
 void freeClientsInAsyncFreeQueue(void) {
     while (listLength(server.clients_to_close)) {
         listNode *ln = listFirst(server.clients_to_close);
@@ -1033,6 +1034,7 @@ client *lookupClientByID(uint64_t id) {
 
 /* Write data in output buffers to client. Return C_OK if the client
  * is still valid after the call, C_ERR if it was freed. */
+// 将数据发送给client
 int writeToClient(int fd, client *c, int handler_installed) {
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
@@ -1097,8 +1099,10 @@ int writeToClient(int fd, client *c, int handler_installed) {
     server.stat_net_output_bytes += totwritten;
     if (nwritten == -1) {
         if (errno == EAGAIN) {
+            // 中断
             nwritten = 0;
         } else {
+            // 出错
             serverLog(LL_VERBOSE,
                 "Error writing to client: %s", strerror(errno));
             freeClient(c);
@@ -1110,9 +1114,11 @@ int writeToClient(int fd, client *c, int handler_installed) {
          * as an interaction, since we always send REPLCONF ACK commands
          * that take some time to just fill the socket output buffer.
          * We just rely on data / pings received for timeout detection. */
+        // 对于 代表master节点的client,最后一次交互时间是由 ping之类来更新 
         if (!(c->flags & CLIENT_MASTER)) c->lastinteraction = server.unixtime;
     }
     if (!clientHasPendingReplies(c)) {
+        // 已经发送完毕所有的待发送数据,需要执行一些后续的清理工作
         c->sentlen = 0;
         if (handler_installed) aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
 

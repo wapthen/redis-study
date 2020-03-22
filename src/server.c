@@ -446,7 +446,7 @@ void exitFromChild(int retcode) {
 #ifdef COVERAGE_TEST
     exit(retcode);
 #else
-    _exit(retcode);
+    _exit(retcode); //Note all opened file descriptors are not flushed automatically
 #endif
 }
 
@@ -727,6 +727,7 @@ dictType replScriptCacheDictType = {
     NULL                        /* val destructor */
 };
 
+// 是否需要进行hash压缩
 int htNeedsResize(dict *dict) {
     long long size, used;
 
@@ -738,6 +739,7 @@ int htNeedsResize(dict *dict) {
 
 /* If the percentage of used slots in the HT reaches HASHTABLE_MIN_FILL
  * we resize the hash table to save memory */
+// 对指定的db库以及过期库进行尝试压缩内存
 void tryResizeHashTables(int dbid) {
     if (htNeedsResize(server.db[dbid].dict))
         dictResize(server.db[dbid].dict);
@@ -752,6 +754,7 @@ void tryResizeHashTables(int dbid) {
  *
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
+// 渐进式对hash进行扩容,此函数最多执行1毫秒
 int incrementallyRehash(int dbid) {
     /* Keys dictionary */
     if (dictIsRehashing(server.db[dbid].dict)) {
@@ -851,6 +854,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
  * free space not used, this function reclaims space if needed.
  *
  * The function always returns 0 as it never terminates the client. */
+// 调整当前client所用的临时缓存容量,以释放内存
 int clientsCronResizeQueryBuffer(client *c) {
     size_t querybuf_size = sdsAllocSize(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
@@ -907,6 +911,7 @@ int clientsCronResizeQueryBuffer(client *c) {
 size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
 size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
 
+// 每秒跟踪client中接受数据 以及 发送数据所用内存最大的数值
 int clientsCronTrackExpansiveClients(client *c) {
     size_t in_usage = sdsAllocSize(c->querybuf);
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
@@ -1005,8 +1010,10 @@ void databasesCron(void) {
      * as master will synthesize DELs for us. */
     if (server.active_expire_enabled) {
         if (server.masterhost == NULL) {
+            // 主节点开启慢式清理过期数据
             activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
         } else {
+            // 备节点清理自身所记录特有的过期数据:因备节点可能是可写的备节点
             expireSlaveKeys();
         }
     }
@@ -1031,6 +1038,7 @@ void databasesCron(void) {
         if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
         /* Resize */
+        // 压缩hash空间,释放内存
         for (j = 0; j < dbs_per_call; j++) {
             tryResizeHashTables(resize_db % server.dbnum);
             resize_db++;
@@ -1038,6 +1046,7 @@ void databasesCron(void) {
 
         /* Rehash */
         if (server.activerehashing) {
+            // 主动渐进式hash扩容,每次只进行一个库的操作
             for (j = 0; j < dbs_per_call; j++) {
                 int work_done = incrementallyRehash(rehash_db);
                 if (work_done) {
@@ -1107,6 +1116,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
      * many clients, we want to call serverCron() with an higher frequency. */
+    // 当有更多的client时,需要更高频率的运行定时任务
+    // 注意hz只会升高,无法降低
     if (server.dynamic_hz) {
         while (listLength(server.clients) / server.hz >
                MAX_CLIENTS_PER_CLOCK_TICK)
@@ -1183,6 +1194,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Show some info about non-empty databases */
     run_with_period(5000) {
+        // 遍历每个库,记录库里的数据量
         for (j = 0; j < server.dbnum; j++) {
             long long size, used, vkeys;
 
@@ -1199,6 +1211,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Show information about connected clients */
     if (!server.sentinel_mode) {
         run_with_period(5000) {
+            // 记录当前连接的client个数
             serverLog(LL_VERBOSE,
                 "%lu clients connected (%lu replicas), %zu bytes in use",
                 listLength(server.clients)-listLength(server.slaves),
@@ -1218,9 +1231,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1 &&
         server.aof_rewrite_scheduled)
     {
+        // 执行之前预设的开启aof rewrite后台任务
         rewriteAppendOnlyFileBackground();
     }
 
+    // 后台执行的rdb or aofwrite进程是否完结并做收尾工作
     /* Check if a background saving or AOF rewrite in progress terminated. */
     if (server.rdb_child_pid != -1 || server.aof_child_pid != -1 ||
         ldbPendingChildren())
@@ -1259,6 +1274,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
+        // 是否需要开启一个后台rdb进程
         for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
@@ -1281,6 +1297,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
 
+        // 是否需要开启一个后台aof rewrite进程
+        // 注意 在已有一个rdb后台进程时,不主动开启aof rewrite进程
         /* Trigger an AOF rewrite if needed. */
         if (server.aof_state == AOF_ON &&
             server.rdb_child_pid == -1 &&
@@ -1301,6 +1319,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* AOF postponed flush: Try at every cron cycle if the slow fsync
      * completed. */
+    // 主动执行一次刷盘动作
     if (server.aof_flush_postponed_start) flushAppendOnlyFile(0);
 
     /* AOF write errors: in this case we have a buffer to flush as well and
@@ -1360,6 +1379,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
  * for ready file descriptors. */
+// 此函数在主循环的每轮首先运行,以确保在处理socket之前完成一些任务
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
@@ -1371,6 +1391,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Run a fast expire cycle (the called function will return
      * ASAP if a fast cycle is not needed). */
+    // 快速清理过期数据以释放内存
     if (server.active_expire_enabled && server.masterhost == NULL)
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
@@ -2758,6 +2779,7 @@ void closeListeningSockets(int unlink_unix_socket) {
     }
 }
 
+// 进程退出前的准备工作
 int prepareForShutdown(int flags) {
     int save = flags & SHUTDOWN_SAVE;
     int nosave = flags & SHUTDOWN_NOSAVE;
@@ -2797,6 +2819,7 @@ int prepareForShutdown(int flags) {
     }
 
     /* Create a new RDB file before exiting. */
+    // 在退出进程前执行一次rdb保存工作
     if ((server.saveparamslen > 0 && !nosave) || save) {
         serverLog(LL_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
@@ -2814,6 +2837,7 @@ int prepareForShutdown(int flags) {
     }
 
     /* Remove the pid file if possible and needed. */
+    // 移除磁盘上保存的pid进程id文件
     if (server.daemonize || server.pidfile) {
         serverLog(LL_NOTICE,"Removing the pid file.");
         unlink(server.pidfile);
@@ -2821,9 +2845,11 @@ int prepareForShutdown(int flags) {
 
     /* Best effort flush of slave output buffers, so that we hopefully
      * send them pending writes. */
+    // 将待发送给备节点的数据发送给备节点
     flushSlavesOutputBuffers();
 
     /* Close the listening sockets. Apparently this allows faster restarts. */
+    // 关闭所有的监听端口,应该可以更快的重启
     closeListeningSockets(1);
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");

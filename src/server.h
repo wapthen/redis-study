@@ -767,6 +767,7 @@ typedef struct client {
                                represents the yet not applied portion of the
                                replication stream that we are receiving from
                                the master. */
+    // 记录最近一次querybuf的峰值大小,作为释放无用空间的参考依据
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
     int argc;               /* Num of arguments of current command. */
     robj **argv;            /* Arguments of current command. */
@@ -778,6 +779,7 @@ typedef struct client {
     list *reply;            /* List of reply objects to send to the client. */
     //在reply list中保存应答消息的总字节数
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
+    //本次发送过程已经发送的数据字节数
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
@@ -988,6 +990,7 @@ struct redisServer {
     char *executable;           /* Absolute executable file path. */
     // 启动程序时的入参拷贝
     char **exec_argv;           /* Executable argv vector (copy). */
+    // 开启动态调整hz频率,依据当前的clients数目来调整
     int dynamic_hz;             /* Change hz value depending on # of clients. */
     int config_hz;              /* Configured HZ value. May be different than
                                    the actual 'hz' field value if dynamic-hz
@@ -999,15 +1002,18 @@ struct redisServer {
     aeEventLoop *el;
     unsigned int lruclock;      /* Clock for LRU eviction */ //用于原子更新lru的锁
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
+    // 主动进行渐进式hash扩容
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
     char *requirepass;          /* Pass for AUTH command, or NULL */
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
+    // serverCron函数的执行次数,用于跟hz配合间断执行一些任务
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     // 根据启动时的命令参数,决定是否时哨兵模式
     int sentinel_mode;          /* True if this instance is a Sentinel. */
+    // 进程初始化后的内存大小
     size_t initial_memory_usage; /* Bytes used after initialization. */
     // 配置文件中设置的是否强制展示logo
     int always_show_logo;       /* Show logo even for non-stdout logging. */
@@ -1102,7 +1108,9 @@ struct redisServer {
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
+    // 网络接收数据字节数统计
     long long stat_net_input_bytes; /* Bytes read from network. */
+    // 网络发送数据字节数统计
     long long stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
@@ -1143,15 +1151,17 @@ struct redisServer {
     int aof_fsync;                  /* Kind of fsync() policy */
     // 记录aof文件名
     char *aof_filename;             /* Name of the AOF file */
-    // 标记位，为1表示在有后台子进程在做rdb 或者 aof保存时，不执行刷盘操作
+    // 标记位，为1表示在有后台子进程在做rdb 或者 aof保存时不执行刷盘操作
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
+    // 自动执行rewriteaof的增量阈值
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
+    // 自动执行rewriteaof的初始容量阈值
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     // aof_rewrite full, current file size
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
     // 已成功执行写aof文件中的字节数, 用于写失败回滚文件使用,未刷盘
     off_t aof_current_size;         /* AOF current size. */
-    // 已执行刷盘确保可靠的保存到aof文件中的字节数
+    // 已执行刷盘确保可靠的保存到aof文件中的字节数, 注意对于1s刷盘的异步刷盘策略下,提交异步刷盘任务也算是执行刷盘后的数据
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
     // 对于当前正有RDB子进程保存数据进行中时，记录一下rewrite aof任务，待RDB子进程完毕后再执行rewrite aof任务
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
@@ -1163,6 +1173,7 @@ struct redisServer {
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
     // 记录当前以aof方式保存数据时的aof文件句柄
     int aof_fd;       /* File descriptor of currently selected AOF file */
+    // aof时,当前使用的db库索引号
     int aof_selected_db; /* Currently selected DB in AOF */
     // aof模式下最近一次延迟写标记字段,为0表示之前没有延迟写
     // 对于linux里的write函数可能会被后台正在执行中的fsync阻塞,所以当刷盘策略为每秒时,对于后台有fsync执行时,我们会延迟本次持久化
@@ -1170,7 +1181,7 @@ struct redisServer {
     // 最新执行刷盘aof的时刻
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */
-    // 最近一次执行rewrite aof的开始时间
+    // 最近一次执行rewrite aof的开始时间,由父进程设置此值
     time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
     int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
@@ -1310,6 +1321,7 @@ struct redisServer {
     list *repl_scriptcache_fifo;        /* First in, first out LRU eviction. */
     unsigned int repl_scriptcache_size; /* Max number of elements. */
     /* Synchronous replication. */
+    // 处于WAIT中的client
     list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */

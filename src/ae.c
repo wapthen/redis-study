@@ -194,7 +194,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 
     // 先操作底层多路复用器，再记录并更新eventLoop中的关注事件
     aeApiDelEvent(eventLoop, fd, mask);
-    fe->mask = fe->mask & (~mask);
+    fe->mask &= ~mask;
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
         // 对于当前文件句柄是全局最大的文件句柄而且已无任何关注事件时，则需更新全局最大的文件句柄数值
         // 采用的机制是从最大值逐个降序遍历文件句柄，第一个不为NONE的就是目前现存的全局最大的文件句柄数值
@@ -396,7 +396,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
         {
-            //此处表示是否需要再次执行此定时任务,-1表示无需再次执行,其他值表示再次执行的时间间隔
+            //此处表示是否需要再次执行此定时任务,-1表示无需再次执行,其他值表示再次执行的时间间隔, 单位毫秒
             int retval;
 
             id = te->id;
@@ -569,6 +569,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
  * writable/readable/exception */
 /**
  * 采用poll机制阻塞式的等待此句柄可读or可写，超过一定时间无指定事件则直接返回0
+ * 目前在aof bg子进程末尾截断使用
  */
 int aeWait(int fd, int mask, long long milliseconds) {
     struct pollfd pfd;

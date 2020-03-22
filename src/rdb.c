@@ -1378,6 +1378,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     return C_OK; /* unreached */
 }
 
+// 删除rdb所用的临时磁盘文件
 void rdbRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
