@@ -592,7 +592,7 @@ int equalStringObjects(robj *a, robj *b) {
         return compareStringObjects(a,b) == 0;
     }
 }
-
+// 计算字符串对象的长度
 size_t stringObjectLen(robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     if (sdsEncodedObject(o)) {
@@ -721,7 +721,7 @@ int getLongLongFromObject(robj *o, long long *target) {
 
 /**
  * 将o对象转为long整型，如果出错，则使用msg发送给client
- * o对象自身可能是string型，也可能是
+ * o对象自身可能是string型，也可能是int型
  */
 int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg) {
     long long value;

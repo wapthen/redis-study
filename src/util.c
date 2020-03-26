@@ -269,6 +269,7 @@ uint32_t digits10(uint64_t v) {
 }
 
 /* Like digits10() but for signed values. */
+// 获取整型数据对应的字符串长度
 uint32_t sdigits10(int64_t v) {
     if (v < 0) {
         /* Abs value of LLONG_MIN requires special handling. */

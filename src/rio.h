@@ -84,10 +84,10 @@ struct _rio {
         /* Multiple FDs target (used to write to N sockets). */
         struct {
             int *fds;       /* File descriptors. */
-            int *state;     /* Error state of each fd. 0 (if ok) or errno. */
-            int numfds;
+            int *state;     /* Error state of each fd. 0 (if ok) or errno. *///记录对应的套接字是否发送失败
+            int numfds; // fds数组的成员个数
             off_t pos;
-            sds buf;
+            sds buf; // 缓存区
         } fdset;
     } io;
 };

@@ -305,6 +305,7 @@ static int anetCreateSocket(char *err, int domain) {
 
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
+// 在建立跟对方的tcp连接时,优先执行出口指定本地ip绑定,如果本地绑定失败,则由系统内核决定出口源
 #define ANET_CONNECT_BE_BINDING 2 /* Best effort binding. */
 /**
  * 构造socket句柄并完成connect对端地址

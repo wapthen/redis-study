@@ -168,21 +168,27 @@ void rioInitWithFile(rio *r, FILE *fp) {
  * When buf is NULL and len is 0, the function performs a flush operation
  * if there is some pending buffer, so this function is also used in order
  * to implement rioFdsetFlush(). */
+// 针对无盘化发送复制rdb数据时使用此函数用于向socket阻塞式套接字里写数据
 static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
     ssize_t retval;
     int j;
     unsigned char *p = (unsigned char*) buf;
+    // 当发送的数据为空时,表示需要将缓冲区里的既有数据发送到网络套接字里
     int doflush = (buf == NULL && len == 0);
 
     /* To start we always append to our buffer. If it gets larger than
      * a given size, we actually write to the sockets. */
     if (len) {
+        // 将新数据先追加到缓冲区里
         r->io.fdset.buf = sdscatlen(r->io.fdset.buf,buf,len);
+        // 临时将len置为0,由后续逻辑确认实际要发送数据的长度
         len = 0; /* Prevent entering the while below if we don't flush. */
+        // 确认是否需要发送缓冲区里的数据
         if (sdslen(r->io.fdset.buf) > PROTO_IOBUF_LEN) doflush = 1;
     }
 
     if (doflush) {
+        // 需要实际发送数据以及对应的长度
         p = (unsigned char*) r->io.fdset.buf;
         len = sdslen(r->io.fdset.buf);
     }
@@ -191,10 +197,12 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
      * parallelize while the kernel is sending data in background to
      * the TCP socket. */
     while(len) {
+        // 最多一次write发送的数据限制,因为该网络套接字均已临时改为阻塞式
         size_t count = len < 1024 ? len : 1024;
         int broken = 0;
         for (j = 0; j < r->io.fdset.numfds; j++) {
             if (r->io.fdset.state[j] != 0) {
+                // 对应的套接字之前是否发送失败
                 /* Skip FDs alraedy in error. */
                 broken++;
                 continue;
@@ -202,6 +210,7 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
 
             /* Make sure to write 'count' bytes to the socket regardless
              * of short writes. */
+            // 发送指定count个字节
             size_t nwritten = 0;
             while(nwritten != count) {
                 retval = write(r->io.fdset.fds[j],p+nwritten,count-nwritten);
@@ -210,6 +219,7 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
                      * rio target, EWOULDBLOCK is returned only because of
                      * the SO_SNDTIMEO socket option, so we translate the error
                      * into one more recognizable by the user. */
+                    // 对于阻塞式套接字设置了sendtimeout属性,如果errno为EWOULDBLOCK则表示发送超时
                     if (retval == -1 && errno == EWOULDBLOCK) errno = ETIMEDOUT;
                     break;
                 }
@@ -218,10 +228,12 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
 
             if (nwritten != count) {
                 /* Mark this FD as broken. */
+                // 标记套接字状态为失败,后续跳过发送数据
                 r->io.fdset.state[j] = errno;
                 if (r->io.fdset.state[j] == 0) r->io.fdset.state[j] = EIO;
             }
         }
+        // 所有的套接字均发送失败则直接返回,不再发送数据
         if (broken == r->io.fdset.numfds) return 0; /* All the FDs in error. */
         p += count;
         len -= count;
@@ -250,6 +262,7 @@ static off_t rioFdsetTell(rio *r) {
 static int rioFdsetFlush(rio *r) {
     /* Our flush is implemented by the write method, that recognizes a
      * buffer set to NULL with a count of zero as a flush request. */
+    // 将buf里的残留数据发送到套接字里
     return rioFdsetWrite(r,NULL,0);
 }
 
@@ -264,7 +277,7 @@ static const rio rioFdsetIO = {
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
-
+// 全量复制时,rdb子进程记录所有需要接收数据的套接字等信息
 void rioInitWithFdset(rio *r, int *fds, int numfds) {
     int j;
 

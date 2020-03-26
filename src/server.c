@@ -775,6 +775,7 @@ int incrementallyRehash(int dbid) {
  * memory pages are copied). The goal of this function is to update the ability
  * for dict.c to resize the hash tables accordingly to the fact we have o not
  * running childs. */
+// 修改dict字典是否可以自动调整
 void updateDictResizePolicy(void) {
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
         dictEnableResize();
@@ -2895,6 +2896,7 @@ int writeCommandsDeniedByDiskError(void) {
  * can avoid leaking any information about the password length and any
  * possible branch misprediction related leak.
  */
+// 比较两个字符串是否相同
 int time_independent_strcmp(char *a, char *b) {
     char bufa[CONFIG_AUTHPASS_MAX_LEN], bufb[CONFIG_AUTHPASS_MAX_LEN];
     /* The above two strlen perform len(a) + len(b) operations where either
@@ -2930,6 +2932,7 @@ int time_independent_strcmp(char *a, char *b) {
 
 void authCommand(client *c) {
     if (!server.requirepass) {
+        // 本机未设置密码,但却收到了登陆密码数据,则发送错误
         addReplyError(c,"Client sent AUTH, but no password is set");
     } else if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass)) {
       c->authenticated = 1;

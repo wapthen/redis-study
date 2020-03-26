@@ -1133,6 +1133,7 @@ int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
  * When the function returns C_ERR and if 'error' is not NULL, the
  * integer pointed by 'error' is set to the value of errno just after the I/O
  * error. */
+// 根据进程里的数据生成一份rdb数据,具体是磁盘化还是网络化,有rio里的函数指定
 int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     dictIterator *di = NULL;
     dictEntry *de;
@@ -1236,15 +1237,18 @@ werr:
  * While the suffix is the 40 bytes hex string we announced in the prefix.
  * This way processes receiving the payload can understand when it ends
  * without doing any processing of the content. */
+// 为全量复制rdb时,在开头处设置EOF标识信息,以便于接收方在最开始就能识别出rdb传输的终止符含义
 int rdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
     char eofmark[RDB_EOF_MARK_SIZE];
-
+    // 生成一个随机数据作为EOF标记
     getRandomHexChars(eofmark,RDB_EOF_MARK_SIZE);
     if (error) *error = 0;
     if (rioWrite(rdb,"$EOF:",5) == 0) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     if (rioWrite(rdb,"\r\n",2) == 0) goto werr;
+    //保存进程里的rdb数据并发送到网络里or磁盘上
     if (rdbSaveRio(rdb,error,RDB_SAVE_NONE,rsi) == C_ERR) goto werr;
+    // 最后追加上EOF标记
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     return C_OK;
 
@@ -2279,6 +2283,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
  * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state. */
+// 开盘一个rdb后台进程,并将数据直接网络发送给指定的备节点
 int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     int *fds;
     uint64_t *clientids;
@@ -2300,10 +2305,12 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
 
     /* Collect the file descriptors of the slaves we want to transfer
      * the RDB to, which are i WAIT_BGSAVE_START state. */
+    // 用于记录当前所有备节点里处于 WAIT_BGSAVE_START 状态 所对应的socket套接字
     fds = zmalloc(sizeof(int)*listLength(server.slaves));
     /* We also allocate an array of corresponding client IDs. This will
      * be useful for the child process in order to build the report
      * (sent via unix pipe) that will be sent to the parent. */
+    // 同步记录相应的clientid,便于后续回滚状态以及子进程通知父进程每个client的发送数据的终态
     clientids = zmalloc(sizeof(uint64_t)*listLength(server.slaves));
     numfds = 0;
 
@@ -2314,11 +2321,14 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
             clientids[numfds] = slave->id;
             fds[numfds++] = slave->fd;
+            // 设置初始复制偏移量,并将状态设置为wait_end,发送响应消息
             replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
             /* Put the socket in blocking mode to simplify RDB transfer.
              * We'll restore it when the children returns (since duped socket
              * will share the O_NONBLOCK attribute with the parent). */
+            // 为简化处理,将此套接字设置为阻塞式,后续会恢复
             anetBlock(NULL,slave->fd);
+            // 针对此阻塞式套接字设置发送超时时长
             anetSendTimeout(NULL,slave->fd,server.repl_timeout*1000);
         }
     }
@@ -2337,6 +2347,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         closeListeningSockets(0);
         redisSetProcTitle("redis-rdb-to-slaves");
 
+        // 保存进程里所有数据,并发送到所有处于SLAVE_STATE_WAIT_BGSAVE_START的备节点套接字里
         retval = rdbSaveRioWithEOFMark(&slave_sockets,NULL,rsi);
         if (retval == C_OK && rioFlush(&slave_sockets) == 0)
             retval = C_ERR;
@@ -2368,9 +2379,10 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
              * can match the report with a specific slave, and 'error' is
              * set to 0 if the replication process terminated with a success
              * or the error code if an error occurred. */
+            // 网络直接发送rdb数据完毕,需要针对每一个套接字构造发送的终态结果
             void *msg = zmalloc(sizeof(uint64_t)*(1+2*numfds));
-            uint64_t *len = msg;
-            uint64_t *ids = len+1;
+            uint64_t *len = msg;// 第一个整型为套接字个数
+            uint64_t *ids = len+1;// 从第二个开始为 一对套接字的client-id/套接字发送成功or失败
             int j, msglen;
 
             *len = numfds;
@@ -2382,7 +2394,8 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             /* Write the message to the parent. If we have no good slaves or
              * we are unable to transfer the message to the parent, we exit
              * with an error so that the parent will abort the replication
-             * process with all the childre that were waiting. */
+             * process with all the children that were waiting. */
+            // 发送数据
             msglen = sizeof(uint64_t)*(1+2*numfds);
             if (*len == 0 ||
                 write(server.rdb_pipe_write_result_to_parent,msg,msglen)
@@ -2404,6 +2417,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             /* Undo the state change. The caller will perform cleanup on
              * all the slaves in BGSAVE_START state, but an early call to
              * replicationSetupSlaveForFullResync() turned it into BGSAVE_END */
+            // 创建子进程失败时,需要回滚每个client的状态为wait-start
             listRewind(server.slaves,&li);
             while((ln = listNext(&li))) {
                 client *slave = ln->value;

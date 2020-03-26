@@ -54,7 +54,7 @@ extern char **environ;
 
 static struct {
 	/* original value */
-	const char *arg0;
+	const char *arg0;// 记录着进程的名称
 
 	/* title space available */
 	char *base, *end;

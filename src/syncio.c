@@ -40,12 +40,14 @@
  *
  * All the functions take the timeout in milliseconds. */
 
+// 阻塞式等待套接字可用的最小时长
 #define SYNCIO__RESOLUTION 10 /* Resolution in milliseconds */
 
 /* Write the specified payload to 'fd'. If writing the whole payload will be
  * done within 'timeout' milliseconds the operation succeeds and 'size' is
  * returned. Otherwise the operation fails, -1 is returned, and an unspecified
  * partial write could be performed against the file descriptor. */
+// 同步发送指定长度的数据到套接字里
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
     ssize_t nwritten, ret = size;
     long long start = mstime();
@@ -58,6 +60,7 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
 
         /* Optimistically try to write before checking if the file descriptor
          * is actually writable. At worst we get EAGAIN. */
+        // 优先尝试直接发送数据
         nwritten = write(fd,ptr,size);
         if (nwritten == -1) {
             if (errno != EAGAIN) return -1;
@@ -65,10 +68,13 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
             ptr += nwritten;
             size -= nwritten;
         }
+        // 全部发送完毕的场景
         if (size == 0) return ret;
 
+        // 部分发送成功 or errno为EAGAIN的场景,则需要阻塞式等待该套接字为可写状态
         /* Wait */
         aeWait(fd,AE_WRITABLE,wait);
+        // 校验是否超时
         elapsed = mstime() - start;
         if (elapsed >= timeout) {
             errno = ETIMEDOUT;
@@ -124,6 +130,9 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
  *
  * On success the number of bytes read is returned, otherwise -1.
  * On success the string is always correctly terminated with a 0 byte. */
+// 阻塞式的读取套接字里的数据
+// 注意此函数是从套接字里逐个字符读取,而且每个读取时均是以完整的timeout计时,也就是说实际超时时长会是N*timeout
+// TODO待改进
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
     ssize_t nread = 0;
 
