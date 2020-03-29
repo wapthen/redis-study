@@ -288,7 +288,7 @@ static void killAppendOnlyChild(void) {
 /* Called when the user switches from "appendonly yes" to "appendonly no"
  * at runtime using the CONFIG command. */
 /**
- * 此函数在执行用户调整aof配置由yes转为no时使用
+ * 此函数在执行用户调整aof配置由yes转为no时 or 收到主节点传输来的使用
  * 内部先强行执行一次aof落盘动作
  * 主要是将主进程里内存中缓存的aof-buf命令写入文件并同步落盘，之后将aof功能关闭，并安全的杀掉正在执行中的rewrite aof子进程
  */

@@ -73,6 +73,7 @@ struct _rio {
             off_t pos;
         } buffer;
         /* Stdio file pointer target. */
+        // 这个是用于保存rdb or aof文件使用
         struct {
             // 文件句柄
             FILE *fp;
@@ -81,13 +82,14 @@ struct _rio {
             // 间隔多久执行一次主动刷盘操作,如果为0表示不主动刷盘.
             off_t autosync; /* fsync after 'autosync' bytes written. */
         } file;
+        // 这个是用于无盘发送复制所需的rdb数据流
         /* Multiple FDs target (used to write to N sockets). */
         struct {
             int *fds;       /* File descriptors. */
             int *state;     /* Error state of each fd. 0 (if ok) or errno. *///记录对应的套接字是否发送失败
             int numfds; // fds数组的成员个数
-            off_t pos;
-            sds buf; // 缓存区
+            off_t pos; // 游标
+            sds buf; // 此缓冲区用于主节点将复制rdb数据流发送给各个备节点
         } fdset;
     } io;
 };

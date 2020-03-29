@@ -1142,6 +1142,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
  * we can just write the replies to the client output buffer without any
  * need to use a syscall in order to install the writable event handler,
  * get it called, and so forth. */
+// 
 int handleClientsWithPendingWrites(void) {
     listIter li;
     listNode *ln;
@@ -2307,6 +2308,7 @@ int clientsArePaused(void) {
  * write, close sequence needed to serve a client.
  *
  * The function returns the total number of events processed. */
+// 此函数只是在进程阻塞时,周期性执行一些必要逻辑:比如发送一些套接字里的应答数据,以确保在加载rdb过程中,维持tcp连接的心跳数据能正常发送
 int processEventsWhileBlocked(void) {
     int iterations = 4; /* See the function top-comment. */
     int count = 0;

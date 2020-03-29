@@ -130,9 +130,10 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
  *
  * On success the number of bytes read is returned, otherwise -1.
  * On success the string is always correctly terminated with a 0 byte. */
-// 阻塞式的读取套接字里的数据
+// 类阻塞式的读取套接字里的数据,直到返回的数据第一次遇到\n,同时最终的返回数据里会自动抹掉末尾的\r\n
 // 注意此函数是从套接字里逐个字符读取,而且每个读取时均是以完整的timeout计时,也就是说实际超时时长会是N*timeout
-// TODO待改进
+// 此处是为了区分:回复数据里可能有对psync的响应数据+rdb数据流,所以需要精确的从套接字缓冲区取出psync的响应数据,
+// 而将可能的rdb数据留在套接字缓冲区里便于后续专一读取rdb数据流
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
     ssize_t nread = 0;
 

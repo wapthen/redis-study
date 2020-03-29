@@ -1892,6 +1892,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
          * our cached time since it is used to create and update the last
          * interaction time with clients and for other important things. */
         updateCachedTime();
+        // 备节点在加载主节点送来的新rdb时,因耗时 较长,所以需要在加载rdb中间隔调用心跳函数,确保tcp连接不断
         if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
             replicationSendNewlineToMaster();
         loadingProgress(r->processed_bytes);
@@ -1908,6 +1909,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
     redisDb *db = server.db+0;
     char buf[1024];
 
+    // 加载rdb耗时会很长,所以需要周期性的执行一些必要的其他业务逻辑
     rdb->update_cksum = rdbLoadProgressCallback;
     rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
     // 加载rdb文件开头的标识与版本
@@ -2122,6 +2124,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
  *
  * If you pass an 'rsi' structure initialied with RDB_SAVE_OPTION_INIT, the
  * loading code will fiil the information fields in the structure. */
+// 加载指定rdb文件里的数据
 int rdbLoad(char *filename, rdbSaveInfo *rsi) {
     FILE *fp;
     rio rdb;
@@ -2138,17 +2141,22 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi) {
 
 /* A background saving child (BGSAVE) terminated its work. Handle this.
  * This function covers the case of actual BGSAVEs. */
+// 主进程在收到rdb保存进程通知完毕时,需要执行一些收尾工作
 void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
     if (!bysignal && exitcode == 0) {
+        // rdb子进程正常完结
         serverLog(LL_NOTICE,
             "Background saving terminated with success");
+        // 更新dirty数据,在子进程刚刚fork之前,dirty_before_bgsave已经被付为dirty值,所以此处相减即为最新的变化值
         server.dirty = server.dirty - server.dirty_before_bgsave;
         server.lastsave = time(NULL);
         server.lastbgsave_status = C_OK;
     } else if (!bysignal && exitcode != 0) {
+        // 非信号通知rdb子进程完结,是由子进程自身出错导致的
         serverLog(LL_WARNING, "Background saving error");
         server.lastbgsave_status = C_ERR;
     } else {
+        // 信号通知rdb子进程完结
         mstime_t latency;
 
         serverLog(LL_WARNING,
@@ -2159,9 +2167,11 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
         latencyAddSampleIfNeeded("rdb-unlink-temp-file",latency);
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
          * tirggering an error condition. */
+        // SIGUSR1信号是自身主动通知子进程完结,是作为正常完结来对待
         if (bysignal != SIGUSR1)
             server.lastbgsave_status = C_ERR;
     }
+    // 将rdb相关字段归为初始值,准备下一次的数据保存
     server.rdb_child_pid = -1;
     server.rdb_child_type = RDB_CHILD_TYPE_NONE;
     server.rdb_save_time_last = time(NULL)-server.rdb_save_time_start;
@@ -2174,18 +2184,23 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
 /* A background saving child (BGSAVE) terminated its work. Handle this.
  * This function covers the case of RDB -> Salves socket transfers for
  * diskless replication. */
+// 主节点子进程无盘化推送rdb数据流完结后,主进程的执行函数
 void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     uint64_t *ok_slaves;
 
     if (!bysignal && exitcode == 0) {
+        // 子进程正常推送完毕
         serverLog(LL_NOTICE,
             "Background RDB transfer terminated with success");
     } else if (!bysignal && exitcode != 0) {
+        // 子进程自身遇到内部错误导致子进程退出
         serverLog(LL_WARNING, "Background transfer error");
     } else {
+        // 子进程被信号杀掉
         serverLog(LL_WARNING,
             "Background transfer terminated by signal %d", bysignal);
     }
+    // rdb字段归为初始化值
     server.rdb_child_pid = -1;
     server.rdb_child_type = RDB_CHILD_TYPE_NONE;
     server.rdb_save_time_start = -1;
@@ -2197,19 +2212,24 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
      * If the process returned an error, consider the list of slaves that
      * can continue to be empty, so that it's just a special case of the
      * normal code path. */
+    // 子进程完结时,会通过无名管道将无盘化复制的终态结果通知给主进程
+    // 二进制数据流格式:64位的数据对数目,64位的client_id,64位的终态错误码
     ok_slaves = zmalloc(sizeof(uint64_t)); /* Make space for the count. */
     ok_slaves[0] = 0;
     if (!bysignal && exitcode == 0) {
         int readlen = sizeof(uint64_t);
 
+        // 先读取结果的总对数
         if (read(server.rdb_pipe_read_result_from_child, ok_slaves, readlen) ==
                  readlen)
         {
+            // 开辟用于保存结果的内存
             readlen = ok_slaves[0]*sizeof(uint64_t)*2;
 
             /* Make space for enough elements as specified by the first
              * uint64_t element in the array. */
             ok_slaves = zrealloc(ok_slaves,sizeof(uint64_t)+readlen);
+            // 继续读取之后的数据
             if (readlen &&
                 read(server.rdb_pipe_read_result_from_child, ok_slaves+1,
                      readlen) != readlen)
@@ -2219,6 +2239,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         }
     }
 
+    // 关闭管道
     close(server.rdb_pipe_read_result_from_child);
     close(server.rdb_pipe_write_result_to_parent);
 
@@ -2232,12 +2253,14 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         client *slave = ln->value;
 
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
+            // 备节点client在等待复制的终态结果
             uint64_t j;
             int errorcode = 0;
 
             /* Search for the slave ID in the reply. In order for a slave to
              * continue the replication process, we need to find it in the list,
              * and it must have an error code set to 0 (which means success). */
+            // 从最终结果中定位到当前slave的终态数据
             for (j = 0; j < ok_slaves[0]; j++) {
                 if (slave->id == ok_slaves[2*j+1]) {
                     errorcode = ok_slaves[2*j+2];
@@ -2245,16 +2268,19 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
                 }
             }
             if (j == ok_slaves[0] || errorcode != 0) {
+                // 未找到此slave client或者是 终态结果为错误
                 serverLog(LL_WARNING,
                 "Closing slave %s: child->slave RDB transfer failed: %s",
                     replicationGetSlaveName(slave),
                     (errorcode == 0) ? "RDB transfer child aborted"
                                      : strerror(errorcode));
+                // 主动断开此slave client连接
                 freeClient(slave);
             } else {
                 serverLog(LL_WARNING,
                 "Slave %s correctly received the streamed RDB file.",
                     replicationGetSlaveName(slave));
+                // 将此slave client的socket句柄回置为非阻塞以及关闭sendtimeout的属性设置
                 /* Restore the socket as non-blocking. */
                 anetNonBlock(NULL,slave->fd);
                 anetSendTimeout(NULL,slave->fd,0);
@@ -2267,6 +2293,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
 }
 
 /* When a background RDB saving/transfer terminates, call the right handler. */
+// rdb子进程完毕后的收尾工作
 void backgroundSaveDoneHandler(int exitcode, int bysignal) {
     switch(server.rdb_child_type) {
     case RDB_CHILD_TYPE_DISK:

@@ -2150,6 +2150,7 @@ void initServer(void) {
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth. */
+    // 初始时,设置的定时任务为1ms后触发,再支持的执行间隔由server.hz来动态决定
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);
@@ -2157,6 +2158,7 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
+    // 注册监听套接字事件
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
@@ -2165,6 +2167,7 @@ void initServer(void) {
                     "Unrecoverable error creating server.ipfd file event.");
             }
     }
+    // 注册本地域套接字事件
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
@@ -2179,6 +2182,7 @@ void initServer(void) {
     }
 
     /* Open the AOF file if needed. */
+    // 对于开启aof功能的情况下,创建本地aof文件
     if (server.aof_state == AOF_ON) {
         server.aof_fd = open(server.aof_filename,
                                O_WRONLY|O_APPEND|O_CREAT,0644);
@@ -2193,6 +2197,7 @@ void initServer(void) {
      * no explicit limit in the user provided configuration we set a limit
      * at 3 GB using maxmemory with 'noeviction' policy'. This avoids
      * useless crashes of the Redis instance for out of memory. */
+    // 对于32位系统,设置内存最大可用上限值,并将内存满时的处理方式设置为no-eviction不清除
     if (server.arch_bits == 32 && server.maxmemory == 0) {
         serverLog(LL_WARNING,"Warning: 32 bit instance detected but no memory limit set. Setting 3 GB maxmemory limit with 'noeviction' policy now.");
         server.maxmemory = 3072LL*(1024*1024); /* 3 GB */
@@ -2896,7 +2901,7 @@ int writeCommandsDeniedByDiskError(void) {
  * can avoid leaking any information about the password length and any
  * possible branch misprediction related leak.
  */
-// 比较两个字符串是否相同
+// 比较两个字符串是否相同, 此函数的执行时长只跟client侧输入的密码长度有关,跟自身配置文件里的已配密码长度无关
 int time_independent_strcmp(char *a, char *b) {
     char bufa[CONFIG_AUTHPASS_MAX_LEN], bufb[CONFIG_AUTHPASS_MAX_LEN];
     /* The above two strlen perform len(a) + len(b) operations where either
