@@ -332,19 +332,21 @@ typedef long long mstime_t; /* millisecond time type. */
 /* --- End of handshake states --- */
 // 正在接收rdb数据
 #define REPL_STATE_TRANSFER 14 /* Receiving .rdb from master */
-// rdb复制完毕,主备节点连接握手过程完毕
+// rdb复制完毕,主备节点握手过程完毕
 #define REPL_STATE_CONNECTED 15 /* Connected to master */
 
 /* State of slaves from the POV of the master. Used in client->replstate.
  * In SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE states instead the server is waiting
  * to start the next background saving in order to send updates to it. */
-// 标注备节点在等待开始生成全量复制所需的rdb
+// 如下4个状态是用于 主节点里将下属的备节点client标注相关复制状态
+// 需要全量复制,标注备节点在等待开始生成全量复制所需的rdb
 #define SLAVE_STATE_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
 // 标注备节点已经触发主节点正在生成rdb文件,并等待其完成生成
 #define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
 // 主节点正在推送rdb数据给备节点
 #define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
+// rdb数据传输完毕
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
 
 /* Slave capabilities. */
@@ -816,7 +818,7 @@ typedef struct client {
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
-    // 跟节点最新一次交互的时刻
+    // 跟节点最新一次交互的时刻, 由底层readQueryFromClient函数进行更新
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     // 响应消息reply-list内存 初次 超过软限值的时刻，需要连续超过才有效，中间有一次未超过软限值时，此值清0
     time_t obuf_soft_limit_reached_time;
@@ -1147,7 +1149,9 @@ struct redisServer {
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */
     // 当前主节点进行全量复制的统计次数
     long long stat_sync_full;       /* Number of full resyncs with slaves. */
+    // 统计psync
     long long stat_sync_partial_ok; /* Number of accepted PSYNC requests. */
+    // 统计psync命令失败的次数
     long long stat_sync_partial_err;/* Number of unaccepted PSYNC requests. */
     list *slowlog;                  /* SLOWLOG list of commands */
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
@@ -1361,6 +1365,7 @@ struct redisServer {
     int repl_timeout;               /* Timeout after N seconds of master idle */
     // 当前备节点所隶属于的主节点client
     client *master;     /* Client that is master for this slave */
+    // 记录当前备节点所隶属于的上一个主节点client
     client *cached_master; /* Cached master to be reused for PSYNC. */
     // 主备节点握手中的阻塞式等待时长
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */

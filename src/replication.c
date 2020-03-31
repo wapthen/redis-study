@@ -690,7 +690,7 @@ void syncCommand(client *c) {
      * buffer registering the differences between the BGSAVE and the current
      * dataset, so that we can copy to other slaves if needed. */
     // 在执行sync命令的时候,client的响应缓冲区里不能有任何的待发送数据
-    // 因为此响应缓冲区会被用于在fork子进程执行rdb保存以及发送rdb数据流给备节点过程里,主进程累积的新增的执行命令
+    // 因为在fork子进程执行rdb保存以及发送rdb数据流给备节点时,主进程将累积的新的执行命令存于client的发送缓冲区里
     if (clientHasPendingReplies(c)) {
         // 对于sync跟psync命令时,client里不能有任何待发送的回复数据
         addReplyError(c,"SYNC and PSYNC are invalid with pending output");
@@ -740,7 +740,7 @@ void syncCommand(client *c) {
     if (server.repl_disable_tcp_nodelay)
         anetDisableTcpNoDelay(NULL, c->fd); /* Non critical if it fails. */
     c->repldbfd = -1;
-    // 至此将client标记为备节点所用的client,并将其添加到slave链表里
+    // 至此将client标记为备节点所用的client,并将其同步添加到slave链表里
     c->flags |= CLIENT_SLAVE;
     listAddNodeTail(server.slaves,c);
 
@@ -754,6 +754,7 @@ void syncCommand(client *c) {
         changeReplicationId();
         // 清除旧的复制id与偏移量数据
         clearReplicationId2();
+        // 创建复制缓冲区
         createReplicationBacklog();
     }
 
@@ -797,7 +798,7 @@ void syncCommand(client *c) {
         /* There is an RDB child process but it is writing directly to
          * children sockets. We need to wait for the next BGSAVE
          * in order to synchronize. */
-        // 当前已经有一个rdb后台在生成数据,但是rdb是网络化发送数据,则等待下一次机会
+        // 当前已经有一个rdb后台在生成数据,本次复制全量会避让,后续由replicationCron轮询式的查看是否可以开启全量复制所需的rdb保存进程
         serverLog(LL_NOTICE,"Current BGSAVE has socket target. Waiting for next BGSAVE for SYNC");
 
     /* CASE 3: There is no BGSAVE is progress. */
@@ -1071,7 +1072,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                 slave->replpreamble = sdscatprintf(sdsempty(),"$%lld\r\n",
                     (unsigned long long) slave->repldbsize);
 
-                //
+                //将此套接字的现有写方法删掉
                 aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
                 if (aeCreateFileEvent(server.el, slave->fd, AE_WRITABLE, sendBulkToSlave, slave) == AE_ERR) {
                     freeClient(slave);
@@ -1472,6 +1473,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
      * protocol to make sure correct arguments are sent. This function
      * is not safe for all binary data. */
     if (flags & SYNC_CMD_WRITE) {
+        // 根据通信协议构造数据
         char *arg;
         va_list ap;
         sds cmd = sdsempty();
@@ -1493,6 +1495,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
         cmd = sdscatsds(cmd,cmdargs);
         sdsfree(cmdargs);
 
+        // 将通信数据发送给指定的socket套接字
         /* Transfer command to the server. */
         if (syncWrite(fd,cmd,sdslen(cmd),server.repl_syncio_timeout*1000)
             == -1)
@@ -1613,6 +1616,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         // 当前备节点发送psync命令给主节点
         reply = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"PSYNC",psync_replid,psync_offset,NULL);
         if (reply != NULL) {
+            // 出错
             serverLog(LL_WARNING,"Unable to send PSYNC to master: %s",reply);
             sdsfree(reply);
             // 向指定的套接字发送命令失败时,则将此套接字注册的读取事件删除.
@@ -1673,6 +1677,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
                 server.master_initial_offset);
         }
         /* We are going to full resync, discard the cached master structure. */
+        // 因为本次时执行全量复制,所以对于部分复制所用的字段数值进行清空
         replicationDiscardCachedMaster();
         sdsfree(reply);
         return PSYNC_FULLRESYNC;
@@ -1773,6 +1778,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
+    // 复制状态为初始态则退出
     if (server.repl_state == REPL_STATE_NONE) {
         close(fd);
         return;
@@ -1796,8 +1802,8 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         /* Delete the writable event so that the readable event remains
          * registered and we can wait for the PONG reply. */
         // 注销当前套接字的写事件, 因为后续所有的写数据过程均采用 类阻塞式
-        // 
         // 即:套接字为非阻塞式,但是发送数据指定了发送长度,必须在超时范围内发送完指定长度的数据才算成功
+        // 而且之前安装的写函数是将client里的buf or reply list作为缓冲区,而复制过程则使用独立临时缓冲区,所以需要暂时将写事件删除
         aeDeleteFileEvent(server.el,fd,AE_WRITABLE);
         // 本节点状态改为等待接收pong
         server.repl_state = REPL_STATE_RECEIVE_PONG;
@@ -1817,6 +1823,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
          * Note that older versions of Redis replied with "operation not
          * permitted" instead of using a proper error code, so we test
          * both. */
+        // 这里对于收到的 "+PONG" or "-NOAUTH" or "-ERR operation not permitted" 均认为收到了正常的回复消息
         if (err[0] != '+' &&
             strncmp(err,"-NOAUTH",7) != 0 &&
             strncmp(err,"-ERR operation not permitted",28) != 0)
@@ -1826,7 +1833,6 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
             sdsfree(err);
             goto error;
         } else {
-            // 这里对于收到的 "+PONG" or "-NOAUTH" or "-ERR operation not permitted" 均认为收到了正常的回复消息
             serverLog(LL_NOTICE,
                 "Master replied to PING, replication can continue...");
         }
@@ -1997,6 +2003,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     // 至此,要么是准备进行全量复制,要么时不支持psync协议,所以需要做一些必要的清理准备工作
     // 强制删除级联的备节点断开
     disconnectSlaves(); /* Force our slaves to resync with us as well. */
+    // 释放现有的复制缓冲区
     freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
 
     /* Fall back to SYNC if needed. Otherwise psync_result == PSYNC_FULLRESYNC
@@ -2087,7 +2094,7 @@ int connectWithMaster(void) {
     // 对传输的计时器付初始化数值
     server.repl_transfer_lastio = server.unixtime;
     server.repl_transfer_s = fd;
-    // 复制所用的状态机置为 正在连接中
+    // 置为 正在连接中
     server.repl_state = REPL_STATE_CONNECTING;
     return C_OK;
 }
@@ -2482,7 +2489,7 @@ void replicationResurrectCachedMaster(int newfd) {
 /* This function counts the number of slaves with lag <= min-slaves-max-lag.
  * If the option is active, the server will prevent writes if there are not
  * enough connected slaves with the specified lag (or less). */
-// 统计当前主节点下属的备节点处于正常状态的个数
+// 统计当前主节点下属的备节点处于SLAVE_STATE_ONLINE正常状态 且 空闲时长小于指定配置 的节点个数
 void refreshGoodSlavesCount(void) {
     listIter li;
     listNode *ln;
@@ -2747,9 +2754,10 @@ long long replicationGetSlaveOffset(void) {
 /* --------------------------- REPLICATION CRON  ---------------------------- */
 
 /* Replication cron function, called 1 time per second. */
+// 当前函数近似1s执行一次
 void replicationCron(void) {
     // 计数器,用于记录本函数的累积执行次数
-    // 主要用于定期向隶属于自身的备节点们发送ping消息
+    // 主要用于定期向备节点们发送ping消息
     static long long replication_cron_loops = 0;
 
     /* Non blocking connection timeout? */
@@ -2845,6 +2853,8 @@ void replicationCron(void) {
      * last interaction timer preventing a timeout. In this case we ignore the
      * ping period and refresh the connection once per second since certain
      * timeouts are set at a few seconds (example: PSYNC response). */
+    // 当前节点主动发送一个心跳\n数据包给下属备节点
+    // 主要是避免备节点长时间未收到rdb数据流误判超时
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
@@ -2862,8 +2872,9 @@ void replicationCron(void) {
     }
 
     /* Disconnect timedout slaves. */
+    // 对于已经复制完毕的下属备节点检查超时,如果超时则主动断开tcp长连接
     if (listLength(server.slaves)) {
-        // 处理下属子节点超时的场景
+        // 处理下属备节点超时的场景
         listIter li;
         listNode *ln;
 
@@ -2936,6 +2947,11 @@ void replicationCron(void) {
      * number of seconds (according to configuration) so that other slaves
      * have the time to arrive before we start streaming. */
     // 下属备节点是否有处于等待rdb的状态
+    // 因为redis只允许存在一个后台rdb进程,所以可能会出现,备节点通知主节点开启全量复制的时刻,恰好主节点自身正在进行一个rdb后台进程
+    // 那么全量复制就会避让,等待之前的rdb进程完结后,再进行全量复制所需的rdb保存
+    // 判断依旧就是:下属备节点有处于SLAVE_STATE_WAIT_BGSAVE_START状态的
+    // 对于磁盘化复制方式, 当目前无后台子进程 且 下属备节点处于SLAVE_STATE_WAIT_BGSAVE_START时,立即开启rdb复制进程
+    // 对于无盘化复制方式, 当目前无后台子进程 且 下属备节点处于SLAVE_STATE_WAIT_BGSAVE_START的时长超过repl_diskless_sync_delay时,立即开启rdb复制进程
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
         time_t idle, max_idle = 0;
         int slaves_waiting = 0;

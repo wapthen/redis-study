@@ -570,6 +570,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 /**
  * 采用poll机制阻塞式的等待此句柄可读or可写，超过一定时间无指定事件则直接返回0
  * 目前在aof bg子进程末尾截断使用
+ * 也会出现在复制的握手过程中使用
  */
 int aeWait(int fd, int mask, long long milliseconds) {
     struct pollfd pfd;

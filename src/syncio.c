@@ -71,7 +71,7 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
         // 全部发送完毕的场景
         if (size == 0) return ret;
 
-        // 部分发送成功 or errno为EAGAIN的场景,则需要阻塞式等待该套接字为可写状态
+        // 部分发送成功 or errno为EAGAIN的场景,则需要如下阻塞式等待该套接字为可写状态
         /* Wait */
         aeWait(fd,AE_WRITABLE,wait);
         // 校验是否超时
