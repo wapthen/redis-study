@@ -300,7 +300,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REPL_STATE_NONE 0 /* No active replication */
 // 当前备节点需要做连接主节点,此值在进程的启动时通过配置文件参数replicaof有值时设置为此值
 #define REPL_STATE_CONNECT 1 /* Must connect to master */
-// 当前备节点正在连接主节点,处于此状态下,会主动发送ping消息
+// 当前备节点刚connect主节点,等待tcp3次握手成功的消息
 #define REPL_STATE_CONNECTING 2 /* Connecting to master */
 /* --- Handshake states, must be ordered --- */
 // 当前备节点已经发送了ping消息,等待接收pong消息
@@ -796,7 +796,9 @@ typedef struct client {
     // 当前在用的db库
     redisDb *db;            /* Pointer to currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
+    // 累积收到的client请求数据
     sds querybuf;           /* Buffer we use to accumulate client queries. */
+    // querybuf里的待解析的请求数据的首下标地址
     size_t qb_pos;          /* The position we have read in querybuf. */
     sds pending_querybuf;   /* If this client is flagged as master, this buffer
                                represents the yet not applied portion of the
@@ -827,22 +829,27 @@ typedef struct client {
     int authenticated;      /* When requirepass is non-NULL. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on ACK. */
+    // 主节点角色在发送rdb文件数据时所用的相关字段
+
     // 主节点记录的待复制同步推送到备节点的磁盘上的rdb文件句柄
     int repldbfd;           /* Replication DB file descriptor. */
-    // 主节点复制推送rdb的偏移量
+    // 主节点复制推送rdb文件的偏移量
     off_t repldboff;        /* Replication DB file offset. */
     // 主节点待复制推送的rdb文件总长度
     off_t repldbsize;       /* Replication DB file size. */
     // 构造一个$rdb文件长度的字符串
     sds replpreamble;       /* Replication DB preamble. */
-    // 当前为主client时记录复制偏移量
+
+    // 备节点角色接收复制数据所用的相关字段
+    // 记录在on_line状态后,从socket上已读取的主client的字节偏移量
     long long read_reploff; /* Read replication offset if this is a master. */
-    // 本地client记录的主节点复制偏移量
+    // 记录已执行完毕的主client的复制偏移量
     long long reploff;      /* Applied replication offset if this is a master. */
+    // 备节点已经确认收到复制数据的偏移量
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
-    // 备节点的响应时刻
+    // 备节点收到最新ack响应时刻
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
-    // 全量复制时的累积的当前初始偏移量
+    // 全量复制时历史上的当前初始偏移量
     long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
                                        copying this slave output buffer
                                        should use. */
@@ -1095,6 +1102,7 @@ struct redisServer {
     // 链表里记录着待安装write句柄的client,这些client会优先直接发送数据,如果之后还有待发送数据,再安装reactor写事件句柄
     list *clients_pending_write; /* There is to write or install handler. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
+    // 当前进程正在使用的client
     client *current_client; /* Current client, only used on crash report */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     // client处于暂停中
@@ -1314,7 +1322,7 @@ struct redisServer {
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
     // 上一次所用的复制id
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
-    // 当前在使用的复制数据历史总偏移量,从0开始计算
+    // 当前已经在使用的复制数据历史总偏移量,从0开始计算, 此值相当于指向下一个待写入的下标位置
     long long master_repl_offset;   /* My current replication offset */
     // 上一次所用的复制数据历史总偏移量
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
@@ -1335,7 +1343,7 @@ struct redisServer {
     // 复制时所用缓冲区的空闲的初始下标,写数据时以此位置开始写入缓冲区
     long long repl_backlog_idx;     /* Backlog circular buffer current offset,
                                        that is the next byte will'll write to.*/
-    // 复制时所用缓冲区的读取数据历史总偏移量里开始第一个字节之后位置的下标,默认是从master_repl_offset+1即1开始
+    // 本轮复制缓存里起始数据之后一个数据历史总偏移量,默认是从master_repl_offset+1开始
     long long repl_backlog_off;     /* Replication "master offset" of first
                                        byte in the replication backlog buffer.*/
     // 无备节点时复制缓冲区的最长超时时间
@@ -1363,9 +1371,9 @@ struct redisServer {
     int masterport;                 /* Port of master */
     // 复制超时时间
     int repl_timeout;               /* Timeout after N seconds of master idle */
-    // 当前备节点所隶属于的主节点client
+    // 当前备节点所隶属于的主节点client, 此master只有在备节点的复制状态处于SLAVE_STATE_ONLINE即rdb接收完毕并加载完毕时才会创建
     client *master;     /* Client that is master for this slave */
-    // 记录当前备节点所隶属于的上一个主节点client
+    // 备份记录当前备节点所隶属于的上一个主节点client
     client *cached_master; /* Cached master to be reused for PSYNC. */
     // 主备节点握手中的阻塞式等待时长
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
@@ -1373,7 +1381,7 @@ struct redisServer {
     int repl_state;          /* Replication status if the instance is a slave */
     // 复制传输的rdb文件总字节数,传输时的初始值为-1,表示当前还不知道要传输的rdb文件大小
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
-    // 复制传输过程中已读取并保存在本地的字节数,传输时的初始值为0
+    // 复制rdb数据传输过程中已读取并保存在本地文件的字节数,传输时的初始值为0
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     // 复制传输过程中的已执行刷盘的字节数,传输时的初始值为0
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
@@ -1402,7 +1410,8 @@ struct redisServer {
      * the server->master client structure. */
     // 当前备节点记录的对应主节点复制id
     char master_replid[CONFIG_RUN_ID_SIZE+1];  /* Master PSYNC runid. */
-    // 当前备节点记录对应的主节点初始偏移量,默认初始值为-1,表示当前所记录的master复制id与偏移量是未设置的,也可以表示不支持psync协议
+    // 当前备节点记录握手阶段收到主节点通知的初始偏移量,默认初始值为-1,表示当前所记录的master复制id与偏移量是未设置的,也可以表示不支持psync协议
+    // 此字段会在psync协议中设置为主节点发送来的偏移量
     long long master_initial_offset;           /* Master PSYNC offset. */
     int repl_slave_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
     /* Replication script cache. */

@@ -77,7 +77,7 @@ int listMatchObjects(void *a, void *b) {
 
 /* This function links the client to the global linked list of clients.
  * unlinkClient() does the opposite, among other things. */
-// 将此client加入到进程里的client链表里，并记录在链表中的指针地址，将client
+// 将此client加入到进程里的client链表里，并记录在链表中的指针地址，将id添加到client id->client指针的基数树中保存
 void linkClient(client *c) {
     // 此client插入到client链表的尾部
     listAddNodeTail(server.clients,c);
@@ -846,6 +846,7 @@ void disconnectSlaves(void) {
 /* Remove the specified client from global lists where the client could
  * be referenced, not including the Pub/Sub channels.
  * This is used by freeClient() and replicationCacheMaster(). */
+// 关闭tcp套接字,删除读写事件
 void unlinkClient(client *c) {
     listNode *ln;
 
@@ -855,6 +856,7 @@ void unlinkClient(client *c) {
     /* Certain operations must be done only if the client has an active socket.
      * If the client was already unlinked or if it's a "fake client" the
      * fd is already set to -1. */
+    // 开始关闭套接字
     if (c->fd != -1) {
         /* Remove from the list of active clients. */
         if (c->client_list_node) {
@@ -869,6 +871,8 @@ void unlinkClient(client *c) {
          * shutdown the socket the fork will continue to write to the slave
          * and the salve will only find out that it was disconnected when
          * it will finish reading the rdb. */
+        // 对于子进程正在向其发送rdb数据流的client 准备关闭时,如果直接close套接字无法达到效果,因为fork之后此套接字是有两份在使用中
+        // 所以需要执行shutdown以关闭读写方式激活tcp4次挥手
         if ((c->flags & CLIENT_SLAVE) &&
             (c->replstate == SLAVE_STATE_WAIT_BGSAVE_END)) {
             shutdown(c->fd, SHUT_RDWR);
@@ -915,6 +919,7 @@ void freeClient(client *c) {
      *
      * Note that before doing this we make sure that the client is not in
      * some unexpected state, by checking its flags. */
+    // 当前备节点跟主节点已经处于正常连接中时,且需要关闭此client时,需要将复制偏移量等数据备份一下,以支持后续的 部分复制功能
     if (server.master && c->flags & CLIENT_MASTER) {
         serverLog(LL_WARNING,"Connection with master lost.");
         if (!(c->flags & (CLIENT_CLOSE_AFTER_REPLY|
@@ -1186,6 +1191,7 @@ int handleClientsWithPendingWrites(void) {
 }
 
 /* resetClient prepare the client to process the next command */
+// 重置指定的client初始值,准备接收处理命令
 void resetClient(client *c) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 

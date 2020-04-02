@@ -89,7 +89,8 @@ void createReplicationBacklog(void) {
     /* We don't have any data inside our buffer, but virtually the first
      * byte we have is the next byte that will be generated for the
      * replication stream. */
-    // 初始值为1
+    // 在创建时,复制缓存里无任何有用数据,此时将其初始化为历史总偏移量的下一个值,以跳过master_repl_offset下标
+    // 注意:后续在向复制缓存里添加数据时,会设置为精确有效的偏移量
     server.repl_backlog_off = server.master_repl_offset+1;
 }
 
@@ -131,9 +132,11 @@ void freeReplicationBacklog(void) {
  * This function also increments the global replication offset stored at
  * server.master_repl_offset, because there is no case where we want to feed
  * the backlog without incrementing the offset. */
+// 将指定长度的命令数据追加到复制缓存里
 void feedReplicationBacklog(void *ptr, size_t len) {
     unsigned char *p = ptr;
 
+    // 历史总偏移量进行后移, master_repl_offset总是指向待写入的位置,即此偏移量之前的一个位置才是有效数据的最后一个字节
     server.master_repl_offset += len;
 
     /* This is a circular buffer, so write as much data we can at every
@@ -152,6 +155,7 @@ void feedReplicationBacklog(void *ptr, size_t len) {
     if (server.repl_backlog_histlen > server.repl_backlog_size)
         server.repl_backlog_histlen = server.repl_backlog_size;
     /* Set the offset of the first byte we have in the backlog. */
+    // 将master_repl_offset设置为历史轴上的起始位置之后一个的偏移量
     server.repl_backlog_off = server.master_repl_offset -
                               server.repl_backlog_histlen + 1;
 }
@@ -380,15 +384,17 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
              server.repl_backlog_idx);
 
     /* Compute the amount of bytes we need to discard. */
-    // 要跳过的数据量
+    // 使用两个历史轴上的偏移量相减,可以计算出 无需复制的数据大小
     skip = offset - server.repl_backlog_off;
     serverLog(LL_DEBUG, "[PSYNC] Skipping: %lld", skip);
 
     /* Point j to the oldest byte, that is actually our
      * server.repl_backlog_off byte. */
-    // j指向累积数据缓冲区里的初始下标位置
-    j = (server.repl_backlog_idx +
-        (server.repl_backlog_size-server.repl_backlog_histlen)) %
+    // 计算出server.repl_backlog_off在复制缓存里的实际下标位置
+    // 这里并没有使用server.repl_backlog_off参与计算,因为server.repl_backlog_off的数值是历史轴上的偏移量
+    // 这里可以通过 待写入数据的下标(是复制缓存里实际的下标) 以及 空闲空间 来计算出已写入数据的初始下标位置
+    j = (server.repl_backlog_idx + //准备要写入的下标位置
+        (server.repl_backlog_size-server.repl_backlog_histlen)) % // 空闲空间
         server.repl_backlog_size;
     serverLog(LL_DEBUG, "[PSYNC] Index of first byte: %lld", j);
 
@@ -398,7 +404,7 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
 
     /* Feed slave with data. Since it is a circular buffer we have to
      * split the reply in two parts if we are cross-boundary. */
-    // 实际要发送的数据
+    // 实际要发送的数据长度
     len = server.repl_backlog_histlen - skip;
     serverLog(LL_DEBUG, "[PSYNC] Reply total length: %lld", len);
     while(len) {
@@ -525,9 +531,9 @@ int masterTryPartialResynchronization(client *c) {
     }
 
     /* We still have the data our slave is asking for? */
-    if (!server.repl_backlog ||
-        psync_offset < server.repl_backlog_off ||
-        psync_offset > (server.repl_backlog_off + server.repl_backlog_histlen))
+    if (!server.repl_backlog || // 无复制缓存空间
+        psync_offset < server.repl_backlog_off || // 所需的偏移量未进入本轮有效数据区间的最左边
+        psync_offset > (server.repl_backlog_off + server.repl_backlog_histlen)) // 所需的偏移量已经超过了本轮有效数据区间的最右边
     {
         // 请求的偏移量未进入数据起始位置,或者偏移量已经超过当前数据的最大偏移量
         serverLog(LL_NOTICE,
@@ -690,7 +696,7 @@ void syncCommand(client *c) {
      * buffer registering the differences between the BGSAVE and the current
      * dataset, so that we can copy to other slaves if needed. */
     // 在执行sync命令的时候,client的响应缓冲区里不能有任何的待发送数据
-    // 因为在fork子进程执行rdb保存以及发送rdb数据流给备节点时,主进程将累积的新的执行命令存于client的发送缓冲区里
+    // 因为在fork子进程执行rdb保存以及发送rdb数据流给备节点时,主进程将累积的新的执行命令存于client的buf or reply list缓冲区
     if (clientHasPendingReplies(c)) {
         // 对于sync跟psync命令时,client里不能有任何待发送的回复数据
         addReplyError(c,"SYNC and PSYNC are invalid with pending output");
@@ -1320,9 +1326,9 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (nread >= CONFIG_RUN_ID_SIZE) {
             memcpy(lastbytes,buf+nread-CONFIG_RUN_ID_SIZE,CONFIG_RUN_ID_SIZE);
         } else {
-            int rem = CONFIG_RUN_ID_SIZE-nread;
-            memmove(lastbytes,lastbytes+nread,rem);
-            memcpy(lastbytes+rem,buf,nread);
+            int rem = CONFIG_RUN_ID_SIZE-nread;// 需保留的长度
+            memmove(lastbytes,lastbytes+nread,rem);//迁移nread个字节
+            memcpy(lastbytes+rem,buf,nread);// 填充nread个新数据
         }
         if (memcmp(lastbytes,eofmark,CONFIG_RUN_ID_SIZE) == 0) eof_reached = 1;
     }
@@ -1439,7 +1445,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
          * accumulate the backlog regardless of the fact they have sub-slaves
          * or not, in order to behave correctly if they are promoted to
          * masters after a failover. */
-        // 建立复制缓冲区
+        // 当前备节点为级联的下属备节点建立复制缓冲区
         if (server.repl_backlog == NULL) createReplicationBacklog();
 
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
@@ -1702,10 +1708,12 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
             new[CONFIG_RUN_ID_SIZE] = '\0';
 
             if (strcmp(new,server.cached_master->replid)) {
+                // 此时发现主节点的复制id变了
                 /* Master ID changed. */
                 serverLog(LL_WARNING,"Master replication ID changed to %s",new);
 
                 /* Set the old ID as our ID2, up to the current offset+1. */
+                // 将旧的复制id以及对应的偏移量备份一下
                 memcpy(server.replid2,server.cached_master->replid,
                     sizeof(server.replid2));
                 server.second_replid_offset = server.master_repl_offset+1;
@@ -1803,7 +1811,6 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
          * registered and we can wait for the PONG reply. */
         // 注销当前套接字的写事件, 因为后续所有的写数据过程均采用 类阻塞式
         // 即:套接字为非阻塞式,但是发送数据指定了发送长度,必须在超时范围内发送完指定长度的数据才算成功
-        // 而且之前安装的写函数是将client里的buf or reply list作为缓冲区,而复制过程则使用独立临时缓冲区,所以需要暂时将写事件删除
         aeDeleteFileEvent(server.el,fd,AE_WRITABLE);
         // 本节点状态改为等待接收pong
         server.repl_state = REPL_STATE_RECEIVE_PONG;
@@ -2091,7 +2098,7 @@ int connectWithMaster(void) {
         return C_ERR;
     }
 
-    // 对传输的计时器付初始化数值
+    // 对传输的计时器初始化
     server.repl_transfer_lastio = server.unixtime;
     server.repl_transfer_s = fd;
     // 置为 正在连接中
@@ -2116,7 +2123,7 @@ void undoConnectWithMaster(void) {
 /* Abort the async download of the bulk dataset while SYNC-ing with master.
  * Never call this function directly, use cancelReplicationHandshake() instead.
  */
-// 备节点终止复制中的db数据传输
+// 备节点终止复制中的db数据传输,关闭tcp连接,并删除本地的rdb临时接收文件
 void replicationAbortSyncTransfer(void) {
     serverAssert(server.repl_state == REPL_STATE_TRANSFER);
     undoConnectWithMaster();
@@ -2220,6 +2227,7 @@ void replicationUnsetMaster(void) {
 
 /* This function is called when the slave lose the connection with the
  * master into an unexpected way. */
+// 复制连接断开与主节点的联系
 void replicationHandleMasterDisconnection(void) {
     server.master = NULL;
     server.repl_state = REPL_STATE_CONNECT;
@@ -2375,19 +2383,23 @@ void replicationSendAck(void) {
  * replicationResurrectCachedMaster() that is used after a successful PSYNC
  * handshake in order to reactivate the cached master.
  */
+// 备份现有的关于复制相关的字段数据
 void replicationCacheMaster(client *c) {
     serverAssert(server.master != NULL && server.cached_master == NULL);
     serverLog(LL_NOTICE,"Caching the disconnected master state.");
 
     /* Unlink the client from the server structures. */
+    // 释放该client对应的套接字句柄
     unlinkClient(c);
 
     /* Reset the master client so that's ready to accept new commands:
      * we want to discard te non processed query buffers and non processed
      * offsets, including pending transactions, already populated arguments,
      * pending outputs to the master. */
+    // 清除master client里的残存的数据
     sdsclear(server.master->querybuf);
     sdsclear(server.master->pending_querybuf);
+    // 
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
@@ -2467,6 +2479,7 @@ void replicationResurrectCachedMaster(int newfd) {
 
     /* Re-add to the list of clients. */
     linkClient(server.master);
+    // 添加此新的fd的读事件
     if (aeCreateFileEvent(server.el, newfd, AE_READABLE,
                           readQueryFromClient, server.master)) {
         serverLog(LL_WARNING,"Error resurrecting the cached master, impossible to add the readable handler: %s", strerror(errno));
@@ -2802,7 +2815,7 @@ void replicationCron(void) {
     /* Send ACK to master from time to time.
      * Note that we do not send periodic acks to masters that don't
      * support PSYNC and replication offsets. */
-    // 备节点发送给主节点本机记录的偏移量信息
+    // 备节点定期主动发送给主节点本机记录的偏移量信息
     if (server.masterhost && server.master &&
         !(server.master->flags & CLIENT_PRE_PSYNC))
         replicationSendAck();
@@ -2817,8 +2830,8 @@ void replicationCron(void) {
 
     // 处理当前节点的下属备节点
     /* First, send PING according to ping_slave_period. */
-    if ((replication_cron_loops % server.repl_ping_slave_period) == 0 &&
-        listLength(server.slaves))
+    if ((replication_cron_loops % server.repl_ping_slave_period) == 0 && // 满足ping的时间间隔
+        listLength(server.slaves)) // 满足当前节点有下属备节点
     {
         /* Note that we don't send the PING if the clients are paused during
          * a Redis Cluster manual failover: the PING we send will otherwise
@@ -2859,6 +2872,8 @@ void replicationCron(void) {
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
+        // 在等待rdb数据传输:因为准备开启rdb数据流可能会耗时较长,为了保证复制通道的可用性,需要间隔的发送心跳包
+        // 对于已经开启了rdb传输, 但是 采用磁盘化文件的方式,往往需要很长时间,所以也需要发送心跳包
         int is_presync =
             (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
             (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
@@ -2872,7 +2887,7 @@ void replicationCron(void) {
     }
 
     /* Disconnect timedout slaves. */
-    // 对于已经复制完毕的下属备节点检查超时,如果超时则主动断开tcp长连接
+    // 对于已经复制完毕处于长连接的下属备节点检查超时,如果超时则主动断开tcp长连接
     if (listLength(server.slaves)) {
         // 处理下属备节点超时的场景
         listIter li;
@@ -2882,6 +2897,7 @@ void replicationCron(void) {
         while((ln = listNext(&li))) {
             client *slave = ln->value;
 
+            // 当前只处理 复制握手+rdb数据传输加载完毕的场景
             if (slave->replstate != SLAVE_STATE_ONLINE) continue;
             if (slave->flags & CLIENT_PRE_PSYNC) continue;
             if ((server.unixtime - slave->repl_ack_time) > server.repl_timeout)
@@ -2899,6 +2915,7 @@ void replicationCron(void) {
      * without sub-slaves attached should still accumulate data into the
      * backlog, in order to reply to PSYNC queries if they are turned into
      * masters after a failover. */
+    // 当前节点为主节点 且 因为丢失了所有的备节点,我们需要释放复制缓冲区的内存空间并更换复制id
     if (listLength(server.slaves) == 0 && server.repl_backlog_time_limit &&
         server.repl_backlog && server.masterhost == NULL)
     {
