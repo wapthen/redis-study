@@ -300,7 +300,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REPL_STATE_NONE 0 /* No active replication */
 // 当前备节点需要做连接主节点,此值在进程的启动时通过配置文件参数replicaof有值时设置为此值
 #define REPL_STATE_CONNECT 1 /* Must connect to master */
-// 当前备节点刚connect主节点,等待tcp3次握手成功的消息
+// 当前备节点刚connect主节点,等待tcp3次握手成功的消息, 此状态也表示在握手中
 #define REPL_STATE_CONNECTING 2 /* Connecting to master */
 /* --- Handshake states, must be ordered --- */
 // 当前备节点已经发送了ping消息,等待接收pong消息
