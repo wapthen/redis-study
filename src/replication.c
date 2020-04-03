@@ -1593,7 +1593,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
 #define PSYNC_NOT_SUPPORTED 4
 #define PSYNC_TRY_LATER 5
 // 当前备节点尝试联系主节点通知准备进行psync复制
-// 参数read_reply为0表示 后续 再由本函数读取主节点的响应数据; 为1表示 本次执行尽可能直接读取主节点的响应数据
+// 参数read_reply为0表示 本次执行只发送数据，不读取主节点的响应数据; 为1表示 本次执行尽可能直接读取主节点的响应数据
 int slaveTryPartialResynchronization(int fd, int read_reply) {
     char *psync_replid;
     char psync_offset[32];
@@ -2467,6 +2467,7 @@ void replicationDiscardCachedMaster(void) {
  * This function is called when successfully setup a partial resynchronization
  * so the stream of data that we'll receive will start from were this
  * master left. */
+// 部分复制的入口函数
 void replicationResurrectCachedMaster(int newfd) {
     server.master = server.cached_master;
     server.cached_master = NULL;

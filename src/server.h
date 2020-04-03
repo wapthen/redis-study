@@ -1373,7 +1373,7 @@ struct redisServer {
     int repl_timeout;               /* Timeout after N seconds of master idle */
     // 当前备节点所隶属于的主节点client, 此master只有在备节点的复制状态处于SLAVE_STATE_ONLINE即rdb接收完毕并加载完毕时才会创建
     client *master;     /* Client that is master for this slave */
-    // 备份记录当前备节点所隶属于的上一个主节点client
+    // 备份记录当前备节点所隶属于的上一个主节点client,单独为psync协议使用
     client *cached_master; /* Cached master to be reused for PSYNC. */
     // 主备节点握手中的阻塞式等待时长
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
