@@ -90,7 +90,7 @@ void createReplicationBacklog(void) {
      * byte we have is the next byte that will be generated for the
      * replication stream. */
     // 在创建时,复制缓存里无任何有用数据,此时将其初始化为历史总偏移量的下一个值,以跳过master_repl_offset下标
-    // 注意:后续在向复制缓存里添加数据时,会设置为精确有效的偏移量
+    // 注意:后续在向复制缓存里添加数据时,会设置为精确有效的历史偏移量
     server.repl_backlog_off = server.master_repl_offset+1;
 }
 
@@ -100,6 +100,7 @@ void createReplicationBacklog(void) {
  * it contains the same data as the previous one (possibly less data, but
  * the most recent bytes, or the same data and more free space in case the
  * buffer is enlarged). */
+// 调整复制缓存空间大小
 void resizeReplicationBacklog(long long newsize) {
     if (newsize < CONFIG_REPL_BACKLOG_MIN_SIZE)
         newsize = CONFIG_REPL_BACKLOG_MIN_SIZE;
@@ -112,6 +113,7 @@ void resizeReplicationBacklog(long long newsize) {
          * The reason is that copying a few gigabytes adds latency and even
          * worse often we need to alloc additional space before freeing the
          * old buffer. */
+        // 此处为保证实时性能从而简单处理，直接丢弃到旧内存里的复制缓存数据，直接开辟一个新的复制缓存区
         zfree(server.repl_backlog);
         server.repl_backlog = zmalloc(server.repl_backlog_size);
         server.repl_backlog_histlen = 0;
@@ -155,18 +157,20 @@ void feedReplicationBacklog(void *ptr, size_t len) {
     if (server.repl_backlog_histlen > server.repl_backlog_size)
         server.repl_backlog_histlen = server.repl_backlog_size;
     /* Set the offset of the first byte we have in the backlog. */
-    // 将master_repl_offset设置为历史轴上的起始位置之后一个的偏移量
+    // 将master_repl_offset设置为历史轴上的起始第二位的历史偏移量
     server.repl_backlog_off = server.master_repl_offset -
                               server.repl_backlog_histlen + 1;
 }
 
 /* Wrapper for feedReplicationBacklog() that takes Redis string objects
  * as input. */
+// 将对象数据追加到复制缓冲区里
 void feedReplicationBacklogWithObject(robj *o) {
     char llstr[LONG_STR_SIZE];
     void *p;
     size_t len;
 
+    // 整型编码需要转回字符串型
     if (o->encoding == OBJ_ENCODING_INT) {
         len = ll2string(llstr,sizeof(llstr),(long)o->ptr);
         p = llstr;
@@ -551,8 +555,9 @@ int masterTryPartialResynchronization(client *c) {
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     // 标记当前client为slave
     c->flags |= CLIENT_SLAVE;
-    // 复制状态改为等待发送update更新
+    // 复制状态改为在线，等待发送update更新
     c->replstate = SLAVE_STATE_ONLINE;
+    // 对复制ack进行赋值，此处也算一次复制ack的通知
     c->repl_ack_time = server.unixtime;
     c->repl_put_online_on_ack = 0;
     listAddNodeTail(server.slaves,c);
@@ -747,6 +752,7 @@ void syncCommand(client *c) {
         anetDisableTcpNoDelay(NULL, c->fd); /* Non critical if it fails. */
     c->repldbfd = -1;
     // 至此将client标记为备节点所用的client,并将其同步添加到slave链表里
+    // 同时表示后续此client存续期间再不会执行本函数
     c->flags |= CLIENT_SLAVE;
     listAddNodeTail(server.slaves,c);
 
@@ -804,7 +810,8 @@ void syncCommand(client *c) {
         /* There is an RDB child process but it is writing directly to
          * children sockets. We need to wait for the next BGSAVE
          * in order to synchronize. */
-        // 当前已经有一个rdb后台在生成数据,本次复制全量会避让,后续由replicationCron轮询式的查看是否可以开启全量复制所需的rdb保存进程
+        // 当前已经有一个rdb无盘网络式后台生成数据
+        // 本次复制全量会避让,后续由replicationCron轮询式的查看SLAVE_STATE_WAIT_BGSAVE_START开启全量复制所需的rdb保存进程
         serverLog(LL_NOTICE,"Current BGSAVE has socket target. Waiting for next BGSAVE for SYNC");
 
     /* CASE 3: There is no BGSAVE is progress. */
@@ -895,6 +902,7 @@ void replconfCommand(client *c) {
                 return;
             if (offset > c->repl_ack_off)
                 c->repl_ack_off = offset;
+            // 主节点收到备节点的ack通知消息，所以更新ack时刻
             c->repl_ack_time = server.unixtime;
             /* If this was a diskless replication, we need to really put
              * the slave online when the first ACK is received (which
@@ -933,6 +941,7 @@ void replconfCommand(client *c) {
 void putSlaveOnline(client *slave) {
     slave->replstate = SLAVE_STATE_ONLINE;
     slave->repl_put_online_on_ack = 0;
+    // 指定的备节点设置为在线状态，那么相当于一次收到ack作用
     slave->repl_ack_time = server.unixtime; /* Prevent false timeout. */
     if (aeCreateFileEvent(server.el, slave->fd, AE_WRITABLE,
         sendReplyToClient, slave) == AE_ERR) {
@@ -1057,6 +1066,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                  * is technically online now. */
                 slave->replstate = SLAVE_STATE_ONLINE;
                 slave->repl_put_online_on_ack = 1;
+                //  此备节点状态已经改为在线，所以ack时刻更新到最新时刻
                 slave->repl_ack_time = server.unixtime; /* Timeout otherwise. */
             } else {
                 // 磁盘化rdb推送开始
@@ -2509,6 +2519,7 @@ void refreshGoodSlavesCount(void) {
     listNode *ln;
     int good = 0;
 
+    //没有设置相关参数的时候，依旧为默认值0
     if (!server.repl_min_slaves_to_write ||
         !server.repl_min_slaves_max_lag) return;
 
@@ -2517,6 +2528,7 @@ void refreshGoodSlavesCount(void) {
         client *slave = ln->value;
         time_t lag = server.unixtime - slave->repl_ack_time;
 
+        // 计算备节点ok的节点个数
         if (slave->replstate == SLAVE_STATE_ONLINE &&
             lag <= server.repl_min_slaves_max_lag) good++;
     }
@@ -2761,6 +2773,7 @@ long long replicationGetSlaveOffset(void) {
      * this function is designed to return an offset that can express the
      * amount of data processed by the master, so we return a positive
      * integer. */
+    // 本函数返回的是当前备节点已经处理过的复制偏移量，需要返回非负值
     if (offset < 0) offset = 0;
     return offset;
 }
@@ -2980,6 +2993,7 @@ void replicationCron(void) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = ln->value;
+            // 当前有备节点触发主节点需要进行一次全量rdb复制
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
                 idle = server.unixtime - slave->lastinteraction;
                 if (idle > max_idle) max_idle = idle;

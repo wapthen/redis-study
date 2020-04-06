@@ -340,13 +340,13 @@ typedef long long mstime_t; /* millisecond time type. */
  * in its output queue. In the WAIT_BGSAVE states instead the server is waiting
  * to start the next background saving in order to send updates to it. */
 // 如下4个状态是用于 主节点里将下属的备节点client标注相关复制状态
-// 需要全量复制,标注备节点在等待开始生成全量复制所需的rdb
+// 触发全量复制标记,备节点正在等待主节点开始全量复制所需的rdb
 #define SLAVE_STATE_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
-// 标注备节点已经触发主节点正在生成rdb文件,并等待其完成生成
+// 此备节点已经触发主节点生成rdb文件,目前等待其完成生成
 #define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
 // 主节点正在推送rdb数据给备节点
 #define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
-// rdb数据传输完毕
+// rdb数据传输完毕，在线
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
 
 /* Slave capabilities. */
@@ -847,7 +847,7 @@ typedef struct client {
     long long reploff;      /* Applied replication offset if this is a master. */
     // 备节点已经确认收到复制数据的偏移量
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
-    // 备节点收到最新ack响应时刻
+    // 记录对应的ack时刻，在收到备节点的ack消息时；'\n'心跳消息时；client复制状态置为SLAVE_STATE_ONLINE状态时
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
     // 全量复制时历史上的当前初始偏移量
     long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
@@ -1326,7 +1326,7 @@ struct redisServer {
     long long master_repl_offset;   /* My current replication offset */
     // 上一次所用的复制数据历史总偏移量
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
-    // 上一次复制数据所用的db库
+    // 记录备节点们上一次复制数据所用的db库
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     // 主节点ping备节点的间隔时间
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
@@ -1343,7 +1343,7 @@ struct redisServer {
     // 复制时所用缓冲区的空闲的初始下标,写数据时以此位置开始写入缓冲区
     long long repl_backlog_idx;     /* Backlog circular buffer current offset,
                                        that is the next byte will'll write to.*/
-    // 本轮复制缓存里起始数据之后一个数据历史总偏移量,默认是从master_repl_offset+1开始
+    // 本轮复制缓存里处于起始第二位有效数据的历史偏移量,默认是从master_repl_offset+1开始
     long long repl_backlog_off;     /* Replication "master offset" of first
                                        byte in the replication backlog buffer.*/
     // 无备节点时复制缓冲区的最长超时时间
@@ -1354,9 +1354,9 @@ struct redisServer {
                                        Only valid if server.slaves len is 0. */
     // 复制时最少可用的备节点个数,如果此值非0表示开启, 低于此值则主节点不执行client的写操作命令                                
     int repl_min_slaves_to_write;   /* Min number of slaves to write. */
-    // 复制时能容忍的延迟的时长,单位秒
+    // 复制时能容忍的延迟的最长时长,单位秒
     int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
-    // 当前满足延迟时长的正常备节点个数
+    // 当前满足延迟时长的正常备节点个数，此值是由repl_min_slaves_max_lag 与server.repl_min_slaves_max_lag计算而得
     int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
     // 是否直接通过网络发送rdb复制数据
     int repl_diskless_sync;         /* Send RDB to slaves sockets directly. */
