@@ -88,8 +88,8 @@ struct _rio {
             int *fds;       /* File descriptors. */
             int *state;     /* Error state of each fd. 0 (if ok) or errno. *///记录对应的套接字是否发送失败
             int numfds; // fds数组的成员个数
-            off_t pos; // 游标
-            sds buf; // 此缓冲区用于主节点将复制rdb数据流发送给各个备节点
+            off_t pos; // 记录发送数据的历史偏移量，供rioFdsetTell()函数使用
+            sds buf; // 此缓冲区用于主节点将复制rdb数据通过socket流式发送给各个备节点
         } fdset;
     } io;
 };

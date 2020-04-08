@@ -340,7 +340,8 @@ typedef long long mstime_t; /* millisecond time type. */
  * in its output queue. In the WAIT_BGSAVE states instead the server is waiting
  * to start the next background saving in order to send updates to it. */
 // 如下4个状态是用于 主节点里将下属的备节点client标注相关复制状态
-// 触发全量复制标记,备节点正在等待主节点开始全量复制所需的rdb
+// 主节点收到备节点发送sync命令时，会先置为此状态：触发全量复制标记,备节点正在等待主节点开始全量复制所需的rdb
+// 当client处于此状态时，表示需要进行rdb全量复制，但是还没有对应的rdb子进程进行复制传输，所以主节点进程不会把新命令发送到此client的reply字符串里
 #define SLAVE_STATE_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
 // 此备节点已经触发主节点生成rdb文件,目前等待其完成生成
 #define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
@@ -827,7 +828,9 @@ typedef struct client {
     int flags;              /* Client flags: CLIENT_* macros. */
     // 是否通过了密码验证
     int authenticated;      /* When requirepass is non-NULL. */
+    // 备节点的复制状态，初始值为REPL_STATE_NONE
     int replstate;          /* Replication state if this is a slave. */
+    // 在复制完成将slave置为online时，是否需要异步安装写事件
     int repl_put_online_on_ack; /* Install slave write handler on ACK. */
     // 主节点角色在发送rdb文件数据时所用的相关字段
 
@@ -1299,7 +1302,9 @@ struct redisServer {
     // 当异步rdb失败时,是否停止接收用户的写请求
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     // 在复制过程中走无盘化网络式发送rdb数据业务时,父子进程所用的无名管道,阻塞式的
+    // 子进程将socket的结果写入管道发送给父进程
     int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
+    // 父进程从管道里读取socket结果数据
     int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
     /* Pipe and data structures for child -> parent info sharing. */
     // 用于子进程向父进程发送子进程的信息,主要是将子进程运行期间涉及到的cow内存大小发送给主进程

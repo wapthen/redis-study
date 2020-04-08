@@ -2283,6 +2283,19 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
                 // 将此slave client的socket句柄回置为非阻塞以及关闭sendtimeout的属性设置
                 /* Restore the socket as non-blocking. */
                 anetNonBlock(NULL,slave->fd);
+                // SO_RCVTIMEO and SO_SNDTIMEO
+                /**
+                 * Specify the receiving or sending timeouts until reporting an error. 
+                 * The argument is a struct timeval. If an input or output function blocks for this period of time,
+                 *  and data has been sent or received, the return value of that function will be the amount
+                 *  of data transferred; if no data has been transferred and the timeout has been reached
+                 *  then -1 is returned with errno set to EAGAIN or EWOULDBLOCK, or EINPROGRESS (for connect(2))
+                 *  just as if the socket was specified to be nonblocking. 
+                 * If the timeout is set to zero (the default) then the operation will never timeout. 
+                 * Timeouts only have effect for system calls that perform socket I/O (e.g., read(2), 
+                 * recvmsg(2), send(2), sendmsg(2)); timeouts have no effect for select(2), poll(2), 
+                 * epoll_wait(2), and so on.
+                 */
                 anetSendTimeout(NULL,slave->fd,0);
             }
         }
