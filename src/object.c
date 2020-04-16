@@ -541,7 +541,9 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
 
+    // 对象指针相同
     if (a == b) return 0;
+    // 将a对象内容转为字符串
     if (sdsEncodedObject(a)) {
         astr = a->ptr;
         alen = sdslen(astr);
@@ -549,6 +551,7 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
         alen = ll2string(bufa,sizeof(bufa),(long) a->ptr);
         astr = bufa;
     }
+    // 将b对象内容转为字符串
     if (sdsEncodedObject(b)) {
         bstr = b->ptr;
         blen = sdslen(bstr);
@@ -556,9 +559,12 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
         blen = ll2string(bufb,sizeof(bufb),(long) b->ptr);
         bstr = bufb;
     }
+
     if (flags & REDIS_COMPARE_COLL) {
+        // 根据当前系统的语言环境进行比较
         return strcoll(astr,bstr);
     } else {
+        // 内存字节式比较
         int cmp;
 
         minlen = (alen < blen) ? alen : blen;
@@ -569,6 +575,7 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
 }
 
 /* Wrapper for compareStringObjectsWithFlags() using binary comparison. */
+// 判断两个字符串对象内容是否相同
 int compareStringObjects(robj *a, robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_BINARY);
 }
@@ -582,6 +589,7 @@ int collateStringObjects(robj *a, robj *b) {
  * point of view of a string comparison, otherwise 0 is returned. Note that
  * this function is faster then checking for (compareStringObject(a,b) == 0)
  * because it can perform some more optimization. */
+// 判断两个对象内容是否相同
 int equalStringObjects(robj *a, robj *b) {
     if (a->encoding == OBJ_ENCODING_INT &&
         b->encoding == OBJ_ENCODING_INT){

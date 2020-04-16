@@ -231,8 +231,10 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_SLAVE (1<<0)   /* This client is a slave server */
 #define CLIENT_MASTER (1<<1)  /* This client is a master server */
 #define CLIENT_MONITOR (1<<2) /* This client is a slave monitor, see MONITOR */
+// 当前client处于事务开启状态
 #define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
 #define CLIENT_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
+// 当前client的事务中所用的key被其他命令修改过，后续事务执行直接失败
 #define CLIENT_DIRTY_CAS (1<<5) /* Watched keys modified. EXEC will fail. */
 // 在发送完毕应答数据后立马主动close client
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
@@ -242,6 +244,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_ASKING (1<<9)     /* Client issued the ASKING command */
 #define CLIENT_CLOSE_ASAP (1<<10)/* Close this client ASAP */
 #define CLIENT_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
+// 当前client的事务因为命令入队出错而失败
 #define CLIENT_DIRTY_EXEC (1<<12)  /* EXEC will fail for errors while queueing */
 // 主节点必须回复消息
 #define CLIENT_MASTER_FORCE_REPLY (1<<13)  /* Queue replies even if is master */
@@ -716,6 +719,7 @@ typedef struct redisDb {
     // 当前库中已经由阻塞变为待处理状态的key
     dict *ready_keys;           /* Blocked keys that received a PUSH */
 
+    // 当前db库里有被client关注的keys字典，对应的value为client指针
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
@@ -724,14 +728,17 @@ typedef struct redisDb {
 
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
-    robj **argv;
+    robj **argv; // 指针数据为自有堆内存，里面的指针成员与client里的argv共用，引用计数+1 
     int argc;
-    struct redisCommand *cmd;
+    struct redisCommand *cmd; // 指针指向全局的cmd数组里特定成员
 } multiCmd;
 
 typedef struct multiState {
+    //multi之后累积的各项待执行命令
     multiCmd *commands;     /* Array of MULTI commands */
+    // commands数组的成员个数
     int count;              /* Total number of MULTI commands */
+    // commands里各项待执行命令里flag的并集
     int cmd_flags;          /* The accumulated command flags OR-ed together.
                                So if at least a command has a given flag, it
                                will be set in this field. */
@@ -869,6 +876,7 @@ typedef struct client {
     // 当前client里的相关阻塞命令所涉及的数据
     blockingState bpop;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
+    // 当前client事务中所关注的key项链表，具体项目是watchedKey结构体里保存
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */

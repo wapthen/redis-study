@@ -2344,6 +2344,7 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
  * This should not be used inside commands implementation. Use instead
  * alsoPropagate(), preventCommandPropagation(), forceCommandPropagation().
  */
+// 将命令参数传播到aof or 备节点
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
