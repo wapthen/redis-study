@@ -224,6 +224,7 @@ typedef long long mstime_t; /* millisecond time type. */
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
 #define AOF_ON 1              /* AOF is on */
+// aof设置已经开启等待第一次的rewrite
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
 /* Client flags */
@@ -852,7 +853,8 @@ typedef struct client {
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
     // 记录对应的ack时刻，在收到备节点的ack消息时；'\n'心跳消息时；client复制状态置为SLAVE_STATE_ONLINE状态时
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
-    // 全量复制时历史上的当前初始偏移量
+    // 全量复制时历史上的当前初始偏移量,初始值会设置为server.master_repl_offset
+    // 此值是为了复制rdb disk类型时，后来的client尽可能复用目前在进行的rdb文件生成，所以需要记录最开始进行rdb时的初始历史偏移量
     long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
                                        copying this slave output buffer
                                        should use. */
@@ -1378,7 +1380,7 @@ struct redisServer {
     int repl_timeout;               /* Timeout after N seconds of master idle */
     // 当前备节点所隶属于的主节点client, 此master只有在备节点的复制状态处于SLAVE_STATE_ONLINE即rdb接收完毕并加载完毕时才会创建
     client *master;     /* Client that is master for this slave */
-    // 备份记录当前备节点所隶属于的上一个主节点client,单独为psync协议使用
+    // 备份记录当前备节点所隶属于的前一个主节点client,单独为psync协议使用
     client *cached_master; /* Cached master to be reused for PSYNC. */
     // 主备节点握手中的阻塞式等待时长
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
@@ -1416,7 +1418,7 @@ struct redisServer {
     // 当前备节点记录的对应主节点复制id
     char master_replid[CONFIG_RUN_ID_SIZE+1];  /* Master PSYNC runid. */
     // 当前备节点记录握手阶段收到主节点通知的初始偏移量,默认初始值为-1,表示当前所记录的master复制id与偏移量是未设置的,也可以表示不支持psync协议
-    // 此字段会在psync协议中设置为主节点发送来的偏移量
+    // 此字段会在psync协议中设置为主节点发送来的fullsync 复制id 偏移量
     long long master_initial_offset;           /* Master PSYNC offset. */
     int repl_slave_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
     /* Replication script cache. */

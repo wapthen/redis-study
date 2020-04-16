@@ -1040,6 +1040,7 @@ client *lookupClientByID(uint64_t id) {
 /* Write data in output buffers to client. Return C_OK if the client
  * is still valid after the call, C_ERR if it was freed. */
 // 将数据发送给client
+// 入参handler_installed为1表示在全部数据发送完毕后将此fd的写事件注销掉
 int writeToClient(int fd, client *c, int handler_installed) {
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
@@ -1137,6 +1138,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
 }
 
 /* Write event handler. Just send data to the client. */
+// 将privdata实际上是client的积累的应答数据发送到fd套接字中，并在数据全部发送完毕后主动注销fd的写事件
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(el);
     UNUSED(mask);
@@ -2221,6 +2223,7 @@ void asyncCloseClientOnOutputBufferLimitReached(client *c) {
  * output buffers without returning control to the event loop.
  * This is also called by SHUTDOWN for a best-effort attempt to send
  * slaves the latest writes. */
+// 将现有的备节点client应答缓冲区里的数据都发送出去
 void flushSlavesOutputBuffers(void) {
     listIter li;
     listNode *ln;

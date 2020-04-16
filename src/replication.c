@@ -429,7 +429,7 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
  * from the slave. The returned value is only valid immediately after
  * the BGSAVE process started and before executing any other command
  * from clients. */
-// 主节点获取历史总偏移量
+// 获取主节点的历史总偏移量
 long long getPsyncInitialOffset(void) {
     return server.master_repl_offset;
 }

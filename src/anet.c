@@ -663,7 +663,7 @@ int anetUnixAccept(char *err, int s) {
     return fd;
 }
 /**
- * 获取指定文件句柄对应的远端地址，并将其转为点分式文本型数据保存到ip与port中
+ * 获取socket句柄对应的远端地址，并将其转为点分式文本型数据保存到ip与port中
  */
 int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_storage sa;
