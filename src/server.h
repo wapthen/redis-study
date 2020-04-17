@@ -483,8 +483,8 @@ typedef long long mstime_t; /* millisecond time type. */
 
 /* Command propagation flags, see propagate() function */
 #define PROPAGATE_NONE 0
-#define PROPAGATE_AOF 1
-#define PROPAGATE_REPL 2
+#define PROPAGATE_AOF 1 // 命令参数需要在aof文件里保存
+#define PROPAGATE_REPL 2 // 命令参数需要复制给备节点
 
 /* RDB active child save type. */
 // rdb的保存方式暂未知, 也可以标示当前无rdb保存进程

@@ -45,7 +45,9 @@ typedef char *sds;
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
 // 如下结构体均是内存压缩模式
-// sdshdr5已经在使用,更为精简，高5位为存储的实际字符串长度。如果后续有字符串长度的扩容时，那么会由此类型升级为sdshdr8；容量缩减则类型不变
+// sdshdr5已经在使用,更为精简，高5位为存储的实际字符串长度。
+// 在创建sds字符串时,是不会创建此类型,会由此类型主动升级为sdshdr8；
+// 在sds缩减时可能会缩减为此类型
 struct __attribute__ ((__packed__)) sdshdr5 {
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
