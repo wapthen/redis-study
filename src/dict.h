@@ -67,14 +67,14 @@ typedef struct dictType {
 
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
-// 字典句柄，存储当前字典链的摘要信息
+// hash句柄
 typedef struct dictht {
     dictEntry **table;// 节点链表
     unsigned long size;// 当前表的数组大小,即桶的个数
     unsigned long sizemask; // 掩码：size-1
     unsigned long used;// 已存节点数
 } dictht;
-// 字典
+// 字典句柄
 typedef struct dict {
     dictType *type;// 字典节点的操作函数方法
     void *privdata; // 创建字典时引入的私有数据
@@ -88,13 +88,38 @@ typedef struct dict {
  * iterating. Otherwise it is a non safe iterator, and only dictNext()
  * should be called while iterating. */
 // 字典迭代器
+// 迭代器分为安全迭代器与非安全迭代器
+/** 
+ * 1. 需要安全迭代器的原因如下:
+ * 场景: 一边遍历一边增加/删除字典里的元素
+ * 上述场景在字典处于渐进式数据迁移时,如不暂停数据迁移会导致遍历过程出现元素重复or丢失异常
+ * 在遍历时需要对字典进行增删的场景下只能使用安全迭代器
+**/
+/**
+ * 2. 既然已经有了安全迭代器,那为什么还要有一个非安全迭代器呢?
+ * 原因: 这个跟多进程内存cow机制有关. 
+ *       为了支持安全迭代器可以暂停当前字典的渐进式数据迁移过程,内部实现是在当前字典dict句柄里维护一个安全迭代器计数器,
+ *       在第一次使用迭代器遍历时,对此计数器+1,这样在调用字典的增删改查接口时判断此计数器是否为0以决定是否暂停数据迁移.
+ *       在释放安全迭代器时,又会对当前字典dict句柄里的安全迭代器计数器-1,以允许数据迁移.
+ *       上述过程, 本质上是对字典dict结构体一个元素的修改.
+ * 
+ *       而redis在进行内存数据rdb持久化 或者 aof-rewrite时,是通过fork子进程, 由子进程将自身"静止的"内存数据进行持久化,
+ *       *inux系统为提升fork性能,普遍采用内存cow写时拷贝机制,即fork出的子进程共享父进程的内存空间,
+ *       只有当出现修改此共享内存空间时,才会拷贝出相关涉及到的内存页,对其进行修改.
+ * 
+ *      基于上述情况, 如果在子进程的数据持久化时使用安全迭代器,必然会导致dict里的计数器字段改动,进行导致不必要的内存页cow.
+ *      所以对于只读式的遍历场景,可以使用非安全迭代器,以避免不必要的内存写时拷贝.
+ * 
+ */ 
 typedef struct dictIterator {
-    dict *d; // 迭代器操作的字典对象
-    long index; //
-    int table, safe; // 当前迭代操作的哪个表; 当前迭代器是否是安全迭代器,对于此类型迭代器会调整dict->iterators进而暂停渐进式hash确保迭代时不会有遗漏
-    dictEntry *entry, *nextEntry; // entry:当前节点；nextEntry下一个节点指针
+    dict *d; // 迭代器当前操作的字典对象
+    long index; // 单张hash表里的桶下标;
+    int table; // 表示当前dictht数组下标,即具体是使用到哪张hash表
+    int safe; // 当前迭代器是否是安全迭代器.对于安全迭代器会在第一次使用时会增加dict->iterators计数器,进而暂停渐进式数据迁移.
+    dictEntry *entry;// 指向桶中链表里的当前某个节点
+    dictEntry *nextEntry; // 指向桶中链表里的下一个节点,以避免迭代器用户删除当前返回的entry节点,进而中断后续迭代.
     /* unsafe iterator fingerprint for misuse detection. */
-    long long fingerprint;
+    long long fingerprint; // 字典指纹, 用于非安全迭代器在遍历前后侦测字典是否发生扩容伸缩调整;
 } dictIterator;
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);

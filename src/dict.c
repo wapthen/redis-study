@@ -152,13 +152,13 @@ int dictResize(dict *d)
 }
 
 /* Expand or create the hash table */
-// 开启渐进式hash
+// 做容量调整的准备工作,标记开启渐进式hash
 // 调整字典大小准备后续的渐进式hash 或者 创建内部的新hash表
 int dictExpand(dict *d, unsigned long size)
 {
     /* the size is invalid if it is smaller than the number of
      * elements already inside the hash table */
-    // 校验，当前字典处于渐进式hash or 目前表大小已经大于 期望的大小，则直接返回
+    // 校验，当前字典处于渐进式hash or 目前已存的元素数目 已经大于 期望开启的容量时，则直接返回错误
     if (dictIsRehashing(d) || d->ht[0].used > size)
         return DICT_ERR;
 
@@ -673,7 +673,7 @@ dictEntry *dictNext(dictIterator *iter)
         if (iter->entry) {
             /* We need to save the 'next' here, the iterator user
              * may delete the entry we are returning. */
-            // 保存下一个节点指针，因为迭代器用户可能会删除迭代器指向的当前节点
+            // 保存下一个节点指针，因为迭代器用户可能会删除迭代器指向的当前节点entry
             iter->nextEntry = iter->entry->next;
             return iter->entry;
         }
