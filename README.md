@@ -7,8 +7,10 @@
 * 上述技术可以参考《APUE》《UNP》书籍中的详细讲解.
 
 ## 基础数据结构
+
 ### adlist双向链表
 ![adlist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/adlist.png)  
+
 ### sds字符串
 **SDS字符串类型说明**
 - *sds类型其实是 char指针: typedef char \*sds ;其直接指向sdshdr句柄后部的载体数据;*
@@ -18,9 +20,13 @@
 - *sds = sdshdr句柄里的末尾成员char buf[], 注意此处为0长度数组;*
 - *sds在开辟/设值时会统一在尾部追加一个/0, 但在sdshdr句柄里的任何字段均不会体现出该1个字节;*
 
-![adlist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/sds.png)  
-### dict字典
+**SDS_TYPE_5说明**
+- *此类型不会出现在创建 或者 扩容 sds阶段, 这两个阶段所用的最短类别为SDS_TYPE_8;*
+- *此类型只会出现在压缩sds阶段,即可以压缩为SDS_TYPE_5类别;*
 
+![adlist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/sds.png)  
+
+### dict字典
  **字典 安全迭代器 与 非安全迭代器 介绍**
   - *需要安全迭代器的原因*
     - 场景:一边遍历一边增加/删除字典里的元素.
@@ -37,5 +43,18 @@
     - 所以对于只读式的遍历场景,可以使用非安全迭代器,以避免不必要的内存写时拷贝.
    
 ![adlist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/dict.png)  
+
 ### intset整型集合
+**intset实现说明**
+- *intset里的载体数据是以升序存储;*
+- *intset结构体与载体数据在内存里均为little-endian编码方式,在使用时会根据系统情况进行适配转换;*
+- *intset结构体与contents内存为一整体,一同开辟与释放;*
+- *contents字节数组的内存大小 = length * encoding;*
+- *插入数据时,优先根据新数的编码决定是否需要将现有的intset编码进行升级;*
+- *插入一个新数据时,内存空间realloc为((length+1) * 新encoding + sizeof(struct intset)),如果涉及编码升级则将contents旧数据逐个遍历设置到新空间合适的位置进而完成每个元素的编码升级;*
+- *删除数据时不会进行编码方式调整,但是会重新realloc内存((length+1) * encoding + sizeof(struct intset);*
+- *编码方式只升不降,因为如要判断编码降级需要遍历现有成员引入性能问题;*
+
+
+
 ![adlist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/intset.png)  
