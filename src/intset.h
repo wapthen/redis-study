@@ -33,6 +33,9 @@
 #include <stdint.h>
 
 // 整体是按数字升序, 此结构体的所有数据均以小尾格式存储
+// 编码方式只会在插入数据时进行提升;
+// 编码方式不会出现降级的情况;
+// 无论是插入or删除数据,均会进行realloc开辟length*encoding大小的内存
 typedef struct intset {
     uint32_t encoding;// 编码格式，主要是指2字节or4字节or8字节存储整型数据
     uint32_t length;// 实际存储数据的个数

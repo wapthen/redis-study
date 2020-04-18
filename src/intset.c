@@ -45,6 +45,7 @@
 #define INTSET_ENC_INT64 (sizeof(int64_t))
 
 /* Return the required encoding for the provided value. */
+// 计算指定数值的最合适编码方式
 static uint8_t _intsetValueEncoding(int64_t v) {
     if (v < INT32_MIN || v > INT32_MAX)
         return INTSET_ENC_INT64;
@@ -108,7 +109,7 @@ intset *intsetNew(void) {
 }
 
 /* Resize the intset */
-// 从新调整已有的intset容量，但是编码格式不变，入参len表示调整后的容量个数
+// 重新调整已有的intset容量，但是编码格式不变，入参len表示调整后的容量个数
 static intset *intsetResize(intset *is, uint32_t len) {
     uint32_t size = len*intrev32ifbe(is->encoding);
     is = zrealloc(is,sizeof(intset)+size);
@@ -179,7 +180,9 @@ static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
 
     /* First set new encoding and resize */
     // 转为小尾方式存储在内存里
+    // 设置新的编码方式
     is->encoding = intrev32ifbe(newenc);
+    // 内存扩容
     is = intsetResize(is,intrev32ifbe(is->length)+1);
 
     /* Upgrade back-to-front so we don't overwrite values.
