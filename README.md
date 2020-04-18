@@ -10,6 +10,14 @@
 ### adlist双向链表
 ![adlist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/adlist.png)  
 ### sds字符串
+**SDS字符串类型说明**
+- *sds类型其实是 char指针: typedef char \*sds ;其直接指向sdshdr句柄后部的载体数据;*
+- *sds类型可以存储text or binary;*
+- *sdshdr句柄采用内存压缩,非内存对齐模式,以压缩内存使用量;*
+- *sdshdr句柄跟实际载体数据前后紧挨着,内存空间开辟时,句柄与载体数据一同开辟;*
+- *sds = sdshdr句柄里的末尾成员char buf[], 注意此处为0长度数组;*
+- *sds在开辟/设值时会统一在尾部追加一个/0, 但在sdshdr句柄里的任何字段均不会体现出该1个字节;*
+
 ![adlist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/sds.png)  
 ### dict字典
 
