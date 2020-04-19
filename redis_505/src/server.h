@@ -924,6 +924,10 @@ typedef struct zskiplistNode {
     struct zskiplistNode *backward;//底层链表的逆序指针
     struct zskiplistLevel {
         struct zskiplistNode *forward;//各层的升序指针
+        /**
+         * 本node 与 forward node之间横跨的节点数目,数目的计算区间(本node, forward-node]前开后闭
+         * 本字段主要是支持sortedset类型的按照rank获取数据功能
+         */ 
         unsigned long span;
     } level[];
 } zskiplistNode;
@@ -1932,7 +1936,7 @@ void receiveChildInfo(void);
 typedef struct {
     // 分数边界
     double min, max;
-    // 是否含有边界数值
+    // 是否排除边界数值
     int minex, maxex; /* are min or max exclusive? */
 } zrangespec;
 

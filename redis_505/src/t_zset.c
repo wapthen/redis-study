@@ -139,8 +139,9 @@ int zslRandomLevel(void) {
  * of the passed SDS string 'ele'. */
 // 将score以及对应ele元素作为新的一对数据插入到跳表里，注意：由调用方保证新的ele元素不在当前跳表中
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
-    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
-    unsigned int rank[ZSKIPLIST_MAXLEVEL];
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL];// 记录新插入节点每一层的前节点
+    zskiplistNode *x;//游标指针
+    unsigned int rank[ZSKIPLIST_MAXLEVEL];// 从最底层头节点的维度计算, 截止到新插入节点每一层的前节点的下标序号
     int i, level;
 
     serverAssert(!isnan(score));
@@ -148,6 +149,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     // 此处保存新插入的节点在各层上的前一个节点指针，便于后续插入新节点对各层指针进行赋值
     for (i = zsl->level-1; i >= 0; i--) {
         /* store rank that is crossed to reach the insert position */
+        // i是降序遍历,rank是累计到当前层级为止所有的底层元素个数
         rank[i] = i == (zsl->level-1) ? 0 : rank[i+1];
         while (x->level[i].forward &&
                 (x->level[i].forward->score < score ||
@@ -166,11 +168,11 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     level = zslRandomLevel();
     if (level > zsl->level) {
         for (i = zsl->level; i < level; i++) {
-            rank[i] = 0;
-            update[i] = zsl->header;
-            update[i]->level[i].span = zsl->length;
+            rank[i] = 0;// 前一个节点就是占位的头结点,所以下标置为0
+            update[i] = zsl->header;//前一个节点为占位的头结点
+            update[i]->level[i].span = zsl->length;//前一个节点的span是横跨整个所有底层元素
         }
-        zsl->level = level;
+        zsl->level = level;// 将整个跳表层级提升到新级别
     }
     x = zslCreateNode(level,score,ele);
     for (i = 0; i < level; i++) {
@@ -179,11 +181,14 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
         update[i]->level[i].forward = x;
 
         /* update span covered by update[i] as x is inserted here */
+        // 新节点的span= 前节点的span - (新节点下标-前节点的下标)
         x->level[i].span = update[i]->level[i].span - (rank[0] - rank[i]);
+        // 前节点的span = (新节点下标 - 前节点下标) + 1, 此处的+1表示是新增节点
         update[i]->level[i].span = (rank[0] - rank[i]) + 1;
     }
 
     /* increment span for untouched levels */
+    // 前节点未触及的层级跨度也需要新增1,以表示后面添加了一个新增节点
     for (i = level; i < zsl->level; i++) {
         update[i]->level[i].span++;
     }
@@ -206,9 +211,13 @@ void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
     // 修改x之前各层指针的数据
     for (i = 0; i < zsl->level; i++) {
         if (update[i]->level[i].forward == x) {
+            // 当前遍历到:待删除节点的前节点
+            // 前节点的跨度元素接管待删除节点的跨度,-1表示排除掉这个待删除节点
             update[i]->level[i].span += x->level[i].span - 1;
+            // 前节点的下一个节点 绕过 待删除节点
             update[i]->level[i].forward = x->level[i].forward;
         } else {
+            // 前节点所包含的跨度元素个数-1,表示需要排除这个待删除节点
             update[i]->level[i].span -= 1;
         }
     }
@@ -218,7 +227,7 @@ void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
     } else {
         zsl->tail = x->backward;
     }
-    // 确认是否需要降低整体层级
+    // 根据占位头结点的当前层级 降序 遍历,以确认当初整个跳表的最高层级是否需要下降
     while(zsl->level > 1 && zsl->header->level[zsl->level-1].forward == NULL)
         zsl->level--;
     zsl->length--;
