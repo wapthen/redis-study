@@ -65,3 +65,9 @@
 ![skiplist_node](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/skiplist_node.png)
 
 ![skiplist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/skiplist.png)  
+
+### 1.6 ziplit跳表
+1.6.1**特别注意**
+- *本结构体里记录的数据除非特别说明,则默认为little-endian编码方式*
+
+![ziplist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/ziplist.png)
