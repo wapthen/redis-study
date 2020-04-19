@@ -24,7 +24,7 @@
 - *此类型不会出现在创建 或者 扩容 sds阶段, 这两个阶段所用的最短类别为SDS_TYPE_8;*
 - *此类型只会出现在压缩sds阶段,即可以压缩为SDS_TYPE_5类别;*
 
-![adlist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/sds.png)  
+![sds](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/sds.png)  
 
 ### dict字典
  **字典 安全迭代器 与 非安全迭代器 介绍**
@@ -42,7 +42,7 @@
     - 基于上述情况, 如果在子进程的数据持久化时使用安全迭代器,必然会导致dict里的计数器字段改动,进行导致不必要的内存页cow.
     - 所以对于只读式的遍历场景,可以使用非安全迭代器,以避免不必要的内存写时拷贝.
    
-![adlist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/dict.png)  
+![dict](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/dict.png)  
 
 ### intset整型集合
 **intset实现说明**
@@ -55,6 +55,12 @@
 - *删除数据时不会进行编码方式调整,但是会重新realloc内存((length+1) * encoding + sizeof(struct intset);*
 - *编码方式只升不降,因为如要判断编码降级需要遍历现有成员引入性能问题;*
 
+![intset](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/intset.png)  
 
+### skiplit跳表
+**跳表结构体里的span字段的用途说明**
+- *本node 与 forward-node之间横跨的节点数目,数目的计算区间(本node, forward-node]前开后闭*
+- *span字段主要是支持sortedset类型的按照rank获取数据功能*
 
-![adlist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/intset.png)  
+![skiplist_node](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/skiplist_node.png)  
+![skiplist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/skiplist.png)  
