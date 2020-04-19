@@ -80,7 +80,9 @@
 #include "zmalloc.h"
 #include "endianconv.h"
 
+// zm len字段单字节与多字节分隔标识
 #define ZIPMAP_BIGLEN 254
+// zm 结尾标识
 #define ZIPMAP_END 255
 
 /* The following defines the max value for the <free> field described in the
@@ -90,6 +92,7 @@
 /* The following macro returns the number of bytes needed to encode the length
  * for the integer value _l, that is, 1 byte for lengths < ZIPMAP_BIGLEN and
  * 5 bytes for all the other lengths. */
+// 计算一个整型按照len的编码格式编码后所占用的字节数:1 或者 5
 #define ZIPMAP_LEN_BYTES(_l) (((_l) < ZIPMAP_BIGLEN) ? 1 : sizeof(unsigned int)+1)
 
 /* Create a new empty zipmap. */
