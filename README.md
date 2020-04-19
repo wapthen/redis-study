@@ -66,8 +66,16 @@
 
 ![skiplist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/skiplist.png)  
 
-### 1.6 ziplit跳表
+### 1.6 ziplit压缩链表
 1.6.1**特别注意**
 - *本结构体里记录的数据除非特别说明,则默认为little-endian编码方式*
 
 ![ziplist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/ziplist.png)
+
+### 1.7 zipmap压缩map
+1.7.1**特别注意**
+- *采用little-endian编码方式存储数据;*
+- *zmlen只有一个byte长度,可以表示[0, 0XFD], 但如果数值为0XFE, 那么就需要遍历整个zipmap来计算出总长度;*
+- *\<free\> is always an unsigned 8 bit number, because if after an update operation there are more than a few free bytes, the zipmap will be reallocated to make sure it is as small as possible.*
+
+![zipmap](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/zipmap.png)
