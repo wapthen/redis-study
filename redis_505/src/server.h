@@ -1242,7 +1242,7 @@ struct redisServer {
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     // 执行rewrite aof子进程id
     pid_t aof_child_pid;            /* PID if rewriting process */
-    // 在开启aof落盘的子进程创建后，由主进程在此块链中存储用户侧的新命令，在子进程将库里的数据落完后，主进程将此块链的数据发送给子进程追加到新aof文件末尾
+    // 在开启aof落盘的子进程创建后，由主进程在此块链中存储用户侧的新命令，在子进程在进行内存数据落盘时，主进程间歇性将此块链的数据发送给子进程
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
     // 在开启aof模式下，此buffer是缓存主进程里收到的还未执行也未落盘刷盘的用户新命令：redis确保用户在收到响应数据之前需先将命令落盘保存。
     sds aof_buf;      /* AOF buffer, written before entering the event loop */

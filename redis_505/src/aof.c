@@ -1920,6 +1920,18 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         /* Rename the temporary file. This will not unlink the target file if
          * it exists, because we reference it with "oldfd". */
+        /**
+         * libc pdf
+         * If oldname is not a directory, then any existing file named newname is removed during
+the renaming operation.
+         * https://linux.die.net/man/3/rename
+         * If the link named by the new argument exists and the file's link count becomes 0 when it is removed
+         *  and no process has the file open, the space occupied by the file shall be freed 
+         * and the file shall no longer be accessible. 
+         * If one or more processes have the file open when the last link is removed, 
+         * the link shall be removed before rename() returns, 
+         * but the removal of the file contents shall be postponed until all references to the file are closed.
+         */
         latencyStartMonitor(latency);
         if (rename(tmpfile,server.aof_filename) == -1) {
             serverLog(LL_WARNING,
