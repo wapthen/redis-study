@@ -157,7 +157,7 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
  *
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
-// 查找key，如果此key已经过期则进行删除操作。
+// 查找key，如果此key已经过期则进行删除操作，如果没有超时则更新lru字段
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     expireIfNeeded(db,key);
     return lookupKey(db,key,LOOKUP_NONE);
@@ -281,7 +281,9 @@ robj *dbRandomKey(redisDb *db) {
 int dbSyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
+    // 从expire中删除key
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+    // 从主字典里删除key，并从slot中移除
     if (dictDelete(db->dict,key->ptr) == DICT_OK) {
         if (server.cluster_enabled) slotToKeyDel(key);
         return 1;
@@ -1129,6 +1131,7 @@ long long getExpire(redisDb *db, robj *key) {
  * AOF and the master->slave link guarantee operation ordering, everything
  * will be consistent even if we allow write operations against expiring
  * keys. */
+// 将删除key的操作写到aof文件，以及发送给备节点中
 void propagateExpire(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
 

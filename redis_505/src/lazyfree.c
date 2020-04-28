@@ -56,7 +56,8 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
  * If there are enough allocations to free the value object may be put into
  * a lazy free list instead of being freed synchronously. The lazy free list
  * will be reclaimed in a different bio.c thread. */
-// 同步删除主字典+expire字典里指定的key对应节点以及节点中的key
+// 同步删除主字典指定的key对应节点以及节点中的key
+// 内部会同步删除expire字典里的key相关数据
 // 根据value的操作成本决定是同步删除value数据，还是异步删除value
 // 删除成功返回1，未执行删除动作返回0
 #define LAZYFREE_THRESHOLD 64 //异步释放阈值，释放时的操作次数超过此阈值则走异步释放，否则直接同步释放内存
@@ -95,7 +96,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         }
     }
 
-    // 节点里的key value 已经被释放了，此时准备释放节点自身的内存
+    // 执行到此，de中的value字段如果太大，会走异步free，被置为NULL；如果为非NULL，则需要本次同步free
     /* Release the key-val pair, or just the key if we set the val
      * field to NULL in order to lazy free it later. */
     if (de) {

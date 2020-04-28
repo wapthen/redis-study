@@ -51,7 +51,7 @@
  *
  * The parameter 'now' is the current time in milliseconds as is passed
  * to the function to avoid too many gettimeofday() syscalls. */
-// 检查主字典里的expire字典里的de节点元素 相对于now时刻是否超时，如果超时则对其进行移除操作并返回1
+// db主字典，de节点为expire字典里的元素 相对于now时刻是否超时，如果超时则对其进行移除操作并返回1
 // 如果没有超时，则返回0
 
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
@@ -60,7 +60,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     if (now > t) {
         // 当前时刻已经超过此元素的绝对过期时刻
         sds key = dictGetKey(de);
-        // 构建临时的字符串对象
+        // 构建临时的字符串对象，用于后续的删除操作使用
         robj *keyobj = createStringObject(key,sdslen(key));
 
         propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
@@ -72,7 +72,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
             dbSyncDelete(db,keyobj);
         notifyKeyspaceEvent(NOTIFY_EXPIRED,
             "expired",keyobj,db->id);
-        //是否临时构建的字符串对象
+        //释放临时构建的字符串对象
         decrRefCount(keyobj);
         server.stat_expiredkeys++;
         return 1;
@@ -535,12 +535,13 @@ void ttlGenericCommand(client *c, int output_ms) {
     expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
         ttl = expire-mstime();
+        // 取的时候未超时，但是计算差值时变为超时，这种情况当做0处理
         if (ttl < 0) ttl = 0;
     }
     if (ttl == -1) {
         addReplyLongLong(c,-1);
     } else {
-        addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));
+        addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));//加500是考虑一定的偏差
     }
 }
 

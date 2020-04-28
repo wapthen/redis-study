@@ -34,6 +34,7 @@
 #define __SDS_H
 
 #define SDS_MAX_PREALLOC (1024*1024) //1M
+// 占位标识字符，其值为“SDS_NOINIT”，表示此字符串未赋值有效数据
 const char *SDS_NOINIT;
 
 #include <sys/types.h>

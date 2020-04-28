@@ -493,6 +493,7 @@ dictEntry *dictUnlink(dict *ht, const void *key) {
 /* You need to call this function to really free the entry after a call
  * to dictUnlink(). It's safe to call this function with 'he' = NULL. */
 // 从字典中释放已经被摘除的节点数据
+// 注意此时的de已经从dict的中摘除，只需要释放he里的key与value指针，以及he自身内存
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
     if (he == NULL) return;
     dictFreeKey(d, he);

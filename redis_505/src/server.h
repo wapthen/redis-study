@@ -667,7 +667,7 @@ typedef struct RedisModuleDigest {
 #define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
 // 跳表存储有序数据
 #define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
-// 字符串型：redisObject跟字符串sds一同分配内存
+// 字符串型：redisObject跟字符串sds一同分配内存，这种方式下的sds字符串容量与已用空间相同，没有任何富余的空间
 #define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
@@ -712,7 +712,9 @@ typedef struct clientReplyBlock {
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
+    // 主字典
     dict *dict;                 /* The keyspace for this DB */
+    // 定时字典，只存key对应的绝对超时刻
     dict *expires;              /* Timeout of keys with a timeout set */
     // 当前库中处于阻塞状态的key,对应的value是client list
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
@@ -2199,6 +2201,7 @@ size_t getSlaveKeyWithExpireCount(void);
 
 /* evict.c -- maxmemory handling and LRU eviction. */
 void evictionPoolAlloc(void);
+// 最低频率淘汰策略的访问频率初始值
 #define LFU_INIT_VAL 5
 unsigned long LFUGetTimeInMinutes(void);
 uint8_t LFULogIncr(uint8_t value);
