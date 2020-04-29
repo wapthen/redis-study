@@ -1449,7 +1449,9 @@ struct redisServer {
     unsigned long long maxmemory;   /* Max number of memory bytes to use */ //所允许使用的最大内存限值,默认为0表示无限制
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */ // 从字典里采样数目
+    // 
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
+    // LFU时间差最小单元,单位分钟级,用于计数器衰退因子
     int lfu_decay_time;             /* LFU counter decay factor. */ // lfu计数器衰退因子
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     /* Blocked clients */
@@ -2202,7 +2204,7 @@ size_t getSlaveKeyWithExpireCount(void);
 
 /* evict.c -- maxmemory handling and LRU eviction. */
 void evictionPoolAlloc(void);
-// 最低频率淘汰策略的访问频率初始值
+// LFU策略的计数器初始值
 #define LFU_INIT_VAL 5
 unsigned long LFUGetTimeInMinutes(void);
 uint8_t LFULogIncr(uint8_t value);

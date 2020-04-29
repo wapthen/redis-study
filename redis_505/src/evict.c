@@ -351,12 +351,17 @@ unsigned long LFUTimeElapsed(unsigned long ldt) {
 
 /* Logarithmically increment a counter. The greater is the current counter value
  * the less likely is that it gets really implemented. Saturate it at 255. */
+// 基于当前的访问频率计算最新的访问频率,要么是原值,要么增1
+// 以一个字节空间记录近期的访问频率,最大值为255
+// 内部采用的是Morris Counter算法:概率性的计数器,整体思想是以极小的内存空间用于记录近期访问频率
 uint8_t LFULogIncr(uint8_t counter) {
     if (counter == 255) return 255;
     double r = (double)rand()/RAND_MAX;
     double baseval = counter - LFU_INIT_VAL;
     if (baseval < 0) baseval = 0;
+    // lfu_log_factor越大,则count变大的几率越小
     double p = 1.0/(baseval*server.lfu_log_factor+1);
+    // 满足一定概率,频率计数器+1
     if (r < p) counter++;
     return counter;
 }
@@ -371,7 +376,7 @@ uint8_t LFULogIncr(uint8_t counter) {
  * This function is used in order to scan the dataset for the best object
  * to fit: as we check for the candidate, we incrementally decrement the
  * counter of the scanned objects if needed. */
-// 获取指定对象的频率
+// 根据时间差对计数器进行衰减,如果高频访问的话,那么最多是维持当前计数器数值
 unsigned long LFUDecrAndReturn(robj *o) {
     // 取出当前对象的上一次访问时刻，单位分钟
     unsigned long ldt = o->lru >> 8;
@@ -379,6 +384,7 @@ unsigned long LFUDecrAndReturn(robj *o) {
     unsigned long counter = o->lru & 255;
     unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;
     if (num_periods)
+        // 衰减方式是当前计数器数值-时间差,如果为负值则置为0
         counter = (num_periods > counter) ? 0 : counter - num_periods;
     return counter;
 }
