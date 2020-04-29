@@ -2101,7 +2101,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * Note: this function is very fast so can be called as many time as
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
-// 计算出处于reply-list中的响应数据总内存消耗，不包含预开辟的reply数组空间
+// 计算出处于reply-list中的响应数据实际内存消耗，不包含预开辟的reply数组空间
 unsigned long getClientOutputBufferMemoryUsage(client *c) {
     // reply-list节点自身所用的内存空间
     unsigned long list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);

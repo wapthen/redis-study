@@ -703,6 +703,7 @@ struct evictionPoolEntry; /* Defined in evict.c */
 
 /* This structure is used in order to represent the output buffer of a client,
  * which is actually a linked list of blocks like that, that is: client->reply. */
+// buf的长度至少为PROTO_REPLY_CHUNK_BYTES，如果应答数据长度len大于PROTO_REPLY_CHUNK_BYTES，则直接开辟len字节数据一次性存储
 typedef struct clientReplyBlock {
     size_t size, used;
     char buf[];

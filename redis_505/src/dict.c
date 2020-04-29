@@ -804,11 +804,15 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
     unsigned long i = random() & maxsizemask;
     unsigned long emptylen = 0; /* Continuous empty entries so far. */ // 连续为空桶的计数器
     while(stored < count && maxsteps--) {
+        // 在第二轮循环时，随机数i+1
         for (j = 0; j < tables; j++) {
             /* Invariant of the dict.c rehashing: up to the indexes already
              * visited in ht[0] during the rehashing, there are no populated
              * buckets, so we can skip ht[0] for indexes between 0 and idx-1. */
+            // 如果i在表0无效，则在表1中找i下标
             if (tables == 2 && j == 0 && i < (unsigned long) d->rehashidx) {
+                // 当前要从表0开始，并且随机数i落在已经迁移走的桶下标里，那么我们跳到表1中查找
+                // 但是如果i超过表1的容量(比如字典正在缩编)，那么我们我们就将i设置为表0的下一个待迁移的桶下标
                 /* Moreover, if we are currently out of range in the second
                  * table, there will be no elements in both tables up to
                  * the current rehashing index, so we jump if possible.
@@ -846,7 +850,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                 }
             }
         }
-        // 桶下标 移到 下一个值
+        // 随机下标 移到 下一个桶
         i = (i+1) & maxsizemask;
     }
     return stored;

@@ -73,7 +73,8 @@ void zlibc_free(void *ptr) {
 
 #define update_zmalloc_stat_alloc(__n) do { \
     size_t _n = (__n); \
-    if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
+     /* 计算大于等于_n的sizeof(long)最小整数倍数*/ \
+    if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1));\
     atomicIncr(used_memory,__n); \
 } while(0)
 

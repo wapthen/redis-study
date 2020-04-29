@@ -219,7 +219,7 @@ void sdsclear(sds s) {
  *
  * Note: this does not change the *length* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
-// 对sds扩容addlen个字节,可能会改变sds类型, 入参sds堆内存可能会在此函数中释放
+// 对sds扩容addlen个字节,内部会预留富余空间,可能会改变sds类型, 入参sds堆内存可能会在此函数中释放
 sds sdsMakeRoomFor(sds s, size_t addlen) {
     void *sh, *newsh;
     // 获取剩余可用空间
@@ -437,7 +437,7 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
-// 将新数据拼接到现有的sds尾部
+// 将新数据拼接到现有的sds尾部，内部会预留一些富余空间
 sds sdscatlen(sds s, const void *t, size_t len) {
     // 计算目前的所存数据字节数
     size_t curlen = sdslen(s);
