@@ -84,11 +84,11 @@ unsigned int getLRUClock(void) {
 unsigned int LRU_CLOCK(void) {
     unsigned int lruclock;
     if (1000/server.hz <= LRU_CLOCK_RESOLUTION) {
-        // 主进程的定时任务执行频率高于1秒1次
-        // 说明需要高速执行，不能为了获取lru数值而频繁的调用系统时间函数，所以这里使用的是cache的lru值。
+        // 主进程的定时任务执行频率高于1秒1次场景
+        // 高速执行的情况下，gettimeofday()函数获取的秒级数据大致相同，所以这里使用的是cache的lru值。
         atomicGet(server.lruclock,lruclock);
     } else {
-        // 执行频率低于1秒1次
+        // 执行频率低于1秒1次场景
         lruclock = getLRUClock();
     }
     return lruclock;
@@ -351,18 +351,32 @@ unsigned long LFUTimeElapsed(unsigned long ldt) {
 
 /* Logarithmically increment a counter. The greater is the current counter value
  * the less likely is that it gets really implemented. Saturate it at 255. */
-// 基于当前的访问频率计算最新的访问频率,要么是原值,要么增1
-// 以一个字节空间记录近期的访问频率,最大值为255
-// 内部采用的是Morris Counter算法:概率性的计数器,整体思想是以极小的内存空间用于记录近期访问频率
+/** 
+ * 计算一个新的`Morris counter`计数，作为LFU使用频率
+ * 该函数返回值越大，表示使用频率越高
+ * 内部是以一个字节8bit记录LFU使用频率,最大值为255
+*/
 uint8_t LFULogIncr(uint8_t counter) {
+    // 旧的计数已经达到上限值，则直接返回该上限值
     if (counter == 255) return 255;
+    
+    // 获取一个新的随机概率
     double r = (double)rand()/RAND_MAX;
+
+    /* 基于旧的计数计算一个概率标杆 */
+
+    // 计数器最开始初始值为LFU_INIT_VAL，此处需减去该值
     double baseval = counter - LFU_INIT_VAL;
+    // 避免出现负值
     if (baseval < 0) baseval = 0;
-    // lfu_log_factor越大,则count变大的几率越小
+    // 计算概率标杆，引入配置参数lfu_log_factor因子，该因子越大，标杆概率越小
     double p = 1.0/(baseval*server.lfu_log_factor+1);
-    // 满足一定概率,频率计数器+1
+
+    // 判断新随机概率r 与 概率标杆p 的大小
+    // 该语句整体表达的含义是 p越小，counter变大的几率越小
     if (r < p) counter++;
+
+    // 得到最新的`Morris counter`数值
     return counter;
 }
 
@@ -376,16 +390,26 @@ uint8_t LFULogIncr(uint8_t counter) {
  * This function is used in order to scan the dataset for the best object
  * to fit: as we check for the candidate, we incrementally decrement the
  * counter of the scanned objects if needed. */
-// 根据时间差对计数器进行衰减,如果高频访问的话,那么最多是维持当前计数器数值
+/**
+ * 衰退操作
+ * 对当前对象的`Morris counter`计数 进行 基于“时间差”纬度的衰减操作，得到一个衰减后的新计数
+ */
 unsigned long LFUDecrAndReturn(robj *o) {
-    // 取出当前对象的上一次访问时刻，单位分钟
+    // 取出当前对象的最近一次访问时刻，单位分钟
     unsigned long ldt = o->lru >> 8;
-    // 取出当前对象的访问次数,最大值为255
+
+    // 取出当前对象的`Morris counter`计数，只占8bit，最大值为255
     unsigned long counter = o->lru & 255;
+
+    // 基于时间差 以及 衰退因子，计算衰退数值
     unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;
+
+    // 计算衰退后的新计数 
     if (num_periods)
-        // 衰减方式是当前计数器数值-时间差,如果为负值则置为0
+        // 衰减公式 是 当前计数 - 衰退数值, 如果为负值则置为0
         counter = (num_periods > counter) ? 0 : counter - num_periods;
+
+    // 返回经过衰退操作的新计数
     return counter;
 }
 
