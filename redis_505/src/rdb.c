@@ -2156,7 +2156,7 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
         serverLog(LL_WARNING, "Background saving error");
         server.lastbgsave_status = C_ERR;
     } else {
-        // 信号通知rdb子进程完结
+        // rdb子进程是被某信号杀掉导致的完结
         mstime_t latency;
 
         serverLog(LL_WARNING,
