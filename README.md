@@ -6,6 +6,16 @@
 * redis涉及到 数据结构/算法/网络编程/信号/多进程通信/多线程同步/文件锁/磁盘io等相关技术知识.
 * 上述技术可以参考《APUE》《UNP》书籍中的详细讲解.
 
+## 文章
+1. [Redis用途](https://github.com/wapthen/redis-study/blob/master/blog/overview/Redis用途.md)
+2. [高性能原因](https://github.com/wapthen/redis-study/blob/master/blog/overview/高性能原因.md) 
+3. [sds字符串](https://github.com/wapthen/redis-study/blob/master/blog/overview/sds字符串.md) 
+4. [expire实现机制](https://github.com/wapthen/redis-study/blob/master/blog/overview/expire实现机制.md) 
+5. [数据淘汰机制](https://github.com/wapthen/redis-study/blob/master/blog/overview/数据淘汰机制.md) 
+6. [文件锁](https://github.com/wapthen/redis-study/blob/master/blog/overview/文件锁.md)
+7. [数据持久化机制](https://github.com/wapthen/redis-study/blob/master/blog/overview/数据持久化机制.md) 
+8. [dict字典里的安全迭代器与非安全迭代器分析](https://github.com/wapthen/redis-study/blob/master/blog/overview/dict字典里的安全迭代器与非安全迭代器分析.md) 
+
 ## 一. 基础数据结构
 
 ### 1.1 adlist双向链表
