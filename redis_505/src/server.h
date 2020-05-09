@@ -737,11 +737,11 @@ typedef struct multiCmd {
 } multiCmd;
 
 typedef struct multiState {
-    //multi之后累积的各项待执行命令
+    // 数组, 存储`multi`命令之后的各项待执行命令,直至遇到`exec`开始执行,注意该数组不包含`multi`与`exec`令
     multiCmd *commands;     /* Array of MULTI commands */
-    // commands数组的成员个数
+    // 数组的成员个数
     int count;              /* Total number of MULTI commands */
-    // commands里各项待执行命令里flag的并集
+    // 各项待执行命令里flag的并集
     int cmd_flags;          /* The accumulated command flags OR-ed together.
                                So if at least a command has a given flag, it
                                will be set in this field. */
