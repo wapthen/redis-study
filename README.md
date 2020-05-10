@@ -20,7 +20,7 @@
 ## 一. 基础数据结构
 
 ### 1.1 adlist双向链表
-![adlist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/adlist.png)  
+![adlist](https://github.com/wapthen/redis-study/blob/master/picture/adlist.png)  
 
 ### 1.2 sds字符串
 1.2.1 **SDS字符串类型说明**
@@ -35,7 +35,7 @@
 - *此类型不会出现在创建 或者 扩容 sds阶段, 这两个阶段所用的最短类别为SDS_TYPE_8;*
 - *此类型只会出现在压缩sds阶段,即可以压缩为SDS_TYPE_5类别;*
 
-![sds](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/sds.png)  
+![sds](https://github.com/wapthen/redis-study/blob/master/picture/sds.png)  
 
 ### 1.3 dict字典
 1.3.1 **字典 安全迭代器 与 非安全迭代器 介绍**
@@ -53,7 +53,7 @@
     - 基于上述情况, 如果在子进程的数据持久化时使用安全迭代器,必然会导致dict里的计数器字段改动,进行导致不必要的内存页cow.
     - 所以对于只读式的遍历场景,可以使用非安全迭代器,以避免不必要的内存写时拷贝.
    
-![dict](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/dict.png)  
+![dict](https://github.com/wapthen/redis-study/blob/master/picture/dict.png)  
 
 ### 1.4 intset整型集合
 1.4.1 **intset实现说明**
@@ -66,22 +66,22 @@
 - *删除数据时不会进行编码方式调整,但是会重新realloc内存((length+1) * encoding + sizeof(struct intset);*
 - *编码方式只升不降,因为如要判断编码降级需要遍历现有成员引入性能问题;*
 
-![intset](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/intset.png)  
+![intset](https://github.com/wapthen/redis-study/blob/master/picture/intset.png)  
 
 ### 1.5 skiplit跳表
 1.5.1 **跳表结构体里的span字段的用途说明**
 - *本node 与 forward-node之间横跨的节点数目,数目的计算区间(本node, forward-node]前开后闭*
 - *span字段主要是支持sortedset类型的按照rank获取数据功能*
 
-![skiplist_node](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/skiplist_node.png)
+![skiplist_node](https://github.com/wapthen/redis-study/blob/master/picture/skiplist_node.png)
 
-![skiplist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/skiplist.png)  
+![skiplist](https://github.com/wapthen/redis-study/blob/master/picture/skiplist.png)  
 
 ### 1.6 ziplit压缩链表
 1.6.1 **特别注意**
 - *本结构体里记录的数据除非特别说明,则默认为little-endian编码方式*
 
-![ziplist](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/ziplist.png)
+![ziplist](https://github.com/wapthen/redis-study/blob/master/picture/ziplist.png)
 
 ### 1.7 zipmap压缩map
 1.7.1 **特别注意**
@@ -89,4 +89,4 @@
 - *zmlen只有一个byte长度,可以表示[0, 0XFD], 但如果数值为0XFE, 那么就需要遍历整个zipmap来计算出总长度;*
 - *\<free\> is always an unsigned 8 bit number, because if after an update operation there are more than a few free bytes, the zipmap will be reallocated to make sure it is as small as possible.*
 
-![zipmap](https://raw.githubusercontent.com/wapthen/redis-study/master/picture/zipmap.png)
+![zipmap](https://github.com/wapthen/redis-study/blob/master/picture/zipmap.png)
