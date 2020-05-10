@@ -15,6 +15,7 @@
 6. [文件锁](https://github.com/wapthen/redis-study/blob/master/blog/overview/文件锁.md)
 7. [数据持久化机制](https://github.com/wapthen/redis-study/blob/master/blog/overview/数据持久化机制.md) 
 8. [dict字典里的安全迭代器与非安全迭代器分析](https://github.com/wapthen/redis-study/blob/master/blog/overview/dict字典里的安全迭代器与非安全迭代器分析.md) 
+9. [事务实现机制](https://github.com/wapthen/redis-study/blob/master/blog/overview/事务实现机制.md) 
 
 ## 一. 基础数据结构
 
