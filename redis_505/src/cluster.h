@@ -19,7 +19,7 @@
 #define CLUSTER_DEFAULT_SLAVE_VALIDITY 10 /* Slave max data age factor. */
 #define CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE 1
 #define CLUSTER_DEFAULT_SLAVE_NO_FAILOVER 0 /* Failover by default. */
-// 失败报告过期乘数因子
+// 失败报告过期乘数因子, 如果报告的时间戳超过2*cluster_node_timeout则直接删除该报告,认为该报告已过期不值得信任
 #define CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 #define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
 #define CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
@@ -50,19 +50,24 @@ struct clusterNode;
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
 // cluster link结构体代表了本节点跟集群其他节点通信所用的client信息
+// 注意：任意两个节点之间是需要有2个clusterLink结构体
+// 一个用于读取数据(只存在于事件分配器的clientdata)；
+// 一个用于发送数据（存于server.cluster->nodes字典里，当有待发数据时才会将套接字注册到事件分配器里,发完就注销掉）;
+// 区别在于结构体内的node指针是否为空
+// 另外, 读取专用套接字会一直在事件分配器中注册;而发送专用套接字则只在有数据待发送时才会注册到事件分配器中,发送完毕后主动注销
 typedef struct clusterLink {
     // tcp 长连接创建时刻
     mstime_t ctime;             /* Link creation time */
     // 用于bus通信的tcp 套接字句柄
     int fd;                     /* TCP socket file descriptor */
-    // tcp 发送缓冲区
+    // tcp 发送缓冲区,在本link生命周期内,空间只会扩张不收缩
     sds sndbuf;                 /* Packet send buffer */
-    // tcp 接收缓冲区             
+    // tcp 接收缓冲区,在本link生命周期内,空间只会扩张不收缩             
     sds rcvbuf;                 /* Packet reception buffer */
     // 指向本link代表的对端node节点,实际的node节点存在与clusterState里的node字典中
-    // 注意此node可能为null
-    // 为null,表示此link是当前tcp启动期间里是被动呼起
-    // 不为null,表示此link时当前tcp启动期间时主动发起
+    // 注意此字段用于区分是主动外呼 or 被动监听呼起
+    // 为null,表示此link是当前tcp是被动监听呼起，即由该node发起到本myself节点的TCP连接.
+    // 不为null,表示此link时当前tcp主动外呼, 即由myself节点主动发起到该node的TCP连接.
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
 } clusterLink;
 
@@ -70,20 +75,23 @@ typedef struct clusterLink {
 // 集群中单个节点状态
 // 如无配置文件,节点自启动时默认为主节点
 #define CLUSTER_NODE_MASTER 1     /* The node is a master */
+// 备节点标记
 #define CLUSTER_NODE_SLAVE 2      /* The node is a slave */
+// 节点疑似失联
 #define CLUSTER_NODE_PFAIL 4      /* Failure? Need acknowledge */
+// 节点确认已失联
 #define CLUSTER_NODE_FAIL 8       /* The node is believed to be malfunctioning */
 // node字典里标注当前节点的标志
 #define CLUSTER_NODE_MYSELF 16    /* This node is myself */
-// 需要跟该node节点进行握手识别
+// 需要跟该node节点进行握手连接
 #define CLUSTER_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 // 节点目前还不知道ip地址
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
 // 需要向该节点发送一个MEET消息, 收到MEET消息的这一方会将发送消息方的信息加入到本节点记录的集群节点字典里
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
-// 主节点有备节点,处于可以数据复制操作的状态
+// 标记主节点使用，表示该主节点有备节点,有资格进行数据复制
 #define CLUSTER_NODE_MIGRATE_TO 256 /* Master eligible for replica migration. */
-// 备节点不允许进行故障迁移
+// 当前节点为备节点，且不允许进行故障迁移
 #define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
@@ -163,7 +171,7 @@ typedef struct clusterNodeFailReport {
     // 指向是由哪个node节点发出的失败报告, 实际node节点存于clusterstate中的node字典
     // 表示发送此消息的节点
     struct clusterNode *node;  /* Node reporting the failure condition. */
-    // 失败报告的最新时刻
+    // 失败or疑似失败报告的最新时刻
     mstime_t time;             /* Time of the last report from this node. */
 } clusterNodeFailReport;
 
@@ -171,7 +179,7 @@ typedef struct clusterNodeFailReport {
 typedef struct clusterNode {
     // node节点创建的时刻,单位毫秒
     mstime_t ctime; /* Node object creation time. */
-    // node id标示
+    // node id标示, 节点的名称只有在节点处于handshake状态且收到对方的回复后,可以从回复消息中取到
     char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
     // 节点状态字段
     int flags;      /* CLUSTER_NODE_... */
@@ -202,11 +210,11 @@ typedef struct clusterNode {
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     // 当前节点最新的复制偏移量
     long long repl_offset;      /* Last known repl offset for this node. */
-    // 节点的ip地址
+    // 集群里本节点的ip地址,
     char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
-    // 节点的监听端口
+    // 集群里本节点的监听端口
     int port;                   /* Latest known clients port of this node */
-    // 节点用于cluster bus通信的监听端口
+    // 集群里本节点用于cluster bus通信的监听端口
     int cport;                  /* Latest known cluster port of this node. */
     // 当前节点对应的link信息
     // 此字段为null时,会通过clusterCron函数来建立socket连接
@@ -230,9 +238,9 @@ typedef struct clusterState {
     dict *nodes;          /* Hash table of name -> clusterNode structures */
     // 集群里处在黑名单中的节点字典,在此字典中的节点短期内时不会被加入到集群中
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
-    // 集群中处于正在迁出的槽位以及对应迁出的节点指针数组
+    // 本节点处于正在迁出的槽位以及对应目的地的节点指针数组
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
-    // 集群中处于正在迁入的槽位以及对应迁入的节点指针数组
+    // 本节点处于正在迁入的槽位以及对应迁入目的地的节点指针数组
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     // 集群槽位图对应的各个node节点指针数组,表示 槽id-->node节点 映射关系
     clusterNode *slots[CLUSTER_SLOTS];
