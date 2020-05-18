@@ -56,7 +56,7 @@ struct clusterNode;
 // 区别在于结构体内的node指针是否为空
 // 另外, 读取专用套接字会一直在事件分配器中注册;而发送专用套接字则只在有数据待发送时才会注册到事件分配器中,发送完毕后主动注销
 typedef struct clusterLink {
-    // tcp 长连接创建时刻
+    // tcp 长连接创建时刻, 在主动断开link重连时基于此字段进行
     mstime_t ctime;             /* Link creation time */
     // 用于bus通信的tcp 套接字句柄
     int fd;                     /* TCP socket file descriptor */
@@ -89,7 +89,7 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
 // 需要向该节点发送一个MEET消息, 收到MEET消息的这一方会将发送消息方的信息加入到本节点记录的集群节点字典里
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
-// 标记主节点使用，表示该主节点有备节点,有资格进行数据复制
+// 标记主节点使用，表示该主节点有资格进行数据复制
 #define CLUSTER_NODE_MIGRATE_TO 256 /* Master eligible for replica migration. */
 // 当前节点为备节点，且不允许进行故障迁移
 #define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
@@ -111,6 +111,7 @@ typedef struct clusterLink {
 #define CLUSTER_CANT_FAILOVER_WAITING_DELAY 2
 #define CLUSTER_CANT_FAILOVER_EXPIRED 3
 #define CLUSTER_CANT_FAILOVER_WAITING_VOTES 4
+// 同一个原因在一段时间内不能重复打印日志
 #define CLUSTER_CANT_FAILOVER_RELOG_PERIOD (60*5) /* seconds. */
 
 /* clusterState todo_before_sleep flags. */
@@ -178,6 +179,7 @@ typedef struct clusterNodeFailReport {
 // 集群节点结构体
 typedef struct clusterNode {
     // node节点创建的时刻,单位毫秒
+    // 当node处于握手中时,使用此字段判断握手是否超时
     mstime_t ctime; /* Node object creation time. */
     // node id标示, 节点的名称只有在节点处于handshake状态且收到对方的回复后,可以从回复消息中取到
     char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
@@ -202,7 +204,9 @@ typedef struct clusterNode {
     mstime_t ping_sent;      /* Unix time we sent latest ping */
     // 节点最新一次接收pong的时刻,单位毫秒, 此值不会备清0,因为需要使用此字段作为随机选取数值最小的节点进行ping
     mstime_t pong_received;  /* Unix time we received the pong */
+    // 节点状态变为FAIL时的时间戳
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
+    // 针对本主节点下的备节点最新一次投票时间戳
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
     // 当前节点收到最新复制偏移量数据的时刻
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
@@ -218,9 +222,9 @@ typedef struct clusterNode {
     int cport;                  /* Latest known cluster port of this node. */
     // 当前节点对应的link信息
     // 此字段为null时,会通过clusterCron函数来建立socket连接
-    // 此字段非null时,是一个写通道连接,当前运行实例写入数据,通过此link发送给该node节点
+    // 此字段非null时,是一个写通道连接,本机发送给当前node的数据会通过此link发送
     clusterLink *link;          /* TCP/IP link with this node */
-    // 周边那些主节点标注此节点为失败or疑似失败的报告链表, 只记录sender为主节点发出的通知
+    // 周边哪些主节点标注当前节点为失败or疑似失败的报告链表, 只记录sender为主节点发出的通知
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
@@ -232,7 +236,7 @@ typedef struct clusterState {
     uint64_t currentEpoch;
     // 集群状态
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
-    // 集群里的主节点个数
+    // 集群里的至少负责1个槽位以上的主节点个数,该值很关键,此值决定故障切换票数是否胜出
     int size;             /* Num of master nodes with at least one slot */
     // 集群里的节点字典, 记录了 nodeid-->node的映射关系
     dict *nodes;          /* Hash table of name -> clusterNode structures */
@@ -249,7 +253,7 @@ typedef struct clusterState {
     // 集群里 槽id-->key 映射关系
     rax *slots_to_keys;
     /* The following fields are used to take the slave state on elections. */
-    // 故障迁移的开始时间
+    // 故障切换的计划开启时间戳,毫秒级, 每轮故障切换超时后会重新计划开启时间戳
     mstime_t failover_auth_time; /* Time of previous or next election. */
     // 截止当前,本节点收到的投票数
     int failover_auth_count;    /* Number of votes received so far. */
@@ -276,12 +280,13 @@ typedef struct clusterState {
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
     /* The followign fields are used by masters to take state on elections. */
+    // 上一次投票时的本机记录的集群纪元
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     /* Messages received and sent by type. */
     long long stats_bus_messages_sent[CLUSTERMSG_TYPE_COUNT];//统计各种类型的消息发送次数
     long long stats_bus_messages_received[CLUSTERMSG_TYPE_COUNT];//统计各种各类型的消息接收次数
-    long long stats_pfail_nodes;   // 处于PFAIL状态的节点个数
+    long long stats_pfail_nodes;   // 集群里处于PFAIL状态的节点个数
                                       /* Number of nodes in PFAIL status,
                                        excluding nodes without address. */
 } clusterState;

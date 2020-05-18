@@ -1498,6 +1498,8 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster and in other conditions when we need to
  * understand if we have keys for a given hash slot. */
+// add=0 :将指定的key从集群的槽位->key映射关系表里删除
+// add=1 :将指定的key添加到集群的槽位->key映射关系表里 
 void slotToKeyUpdateKey(robj *key, int add) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
     unsigned char buf[64];
@@ -1554,7 +1556,7 @@ unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
 
 /* Remove all the keys in the specified hash slot.
  * The number of removed items is returned. */
-// 删除指定槽位的所有key信息
+// 从本机db库中删除指定槽位的所有key信息
 unsigned int delKeysInSlot(unsigned int hashslot) {
     raxIterator iter;
     int j = 0;

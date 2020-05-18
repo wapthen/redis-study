@@ -336,6 +336,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
         if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
         if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err,s) != ANET_OK)
             goto error;
+        // 对此套接字bind本机指定的地址作为源地址
         if (source_addr) {
             int bound = 0;
             /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
@@ -359,6 +360,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
         if (connect(s,p->ai_addr,p->ai_addrlen) == -1) {
             /* If the socket is non-blocking, it is ok for connect() to
              * return an EINPROGRESS error here. */
+            // 非阻塞式connect会立即返回并将errno置为einprogress,内核继续进行tcp 3次握手
             if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK)
                 goto end;
             close(s);
@@ -401,6 +403,11 @@ int anetTcpNonBlockConnect(char *err, char *addr, int port)
     return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONBLOCK);
 }
 
+/**
+ * 非阻塞式connect会立即返回，内存协议栈底层会继续进行TCP 三次握手过程，并且errno为EINPROGRESS
+ * 如果最终3次握手成功后，套接字会提示可写事件
+ * 如果最终3次握手失败，套接字会提示可读可写事件
+ */ 
 int anetTcpNonBlockBindConnect(char *err, char *addr, int port,
                                char *source_addr)
 {
