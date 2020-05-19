@@ -187,7 +187,7 @@ typedef struct clusterNode {
     int flags;      /* CLUSTER_NODE_... */
     // 节点的最新配置纪元,集群里的每一个节点的configEpoch数值均不相同
     uint64_t configEpoch; /* Last configEpoch observed for this node */
-    // 节点记录的槽位图, 位图中对应bit位为1标示由本node节点负责处理
+    // 如果该节点时主节点,记录的槽位图, 位图中对应bit位为1标示由本node节点负责处理
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
     // 节点上负责处理的槽位个数
     int numslots;   /* Number of slots handled by this node */
@@ -244,13 +244,13 @@ typedef struct clusterState {
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
     // 本节点处于正在迁出的槽位以及对应目的地的节点指针数组
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
-    // 本节点处于正在迁入的槽位以及对应迁入目的地的节点指针数组
+    // 本节点处于正在迁入的槽位以及对应来源的节点指针数组
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     // 集群槽位图对应的各个node节点指针数组,表示 槽id-->node节点 映射关系
     clusterNode *slots[CLUSTER_SLOTS];
-    // 集群里每个槽位里所包含的key主键个数
+    // 本机所负责槽位里的key主键个数数
     uint64_t slots_keys_count[CLUSTER_SLOTS];
-    // 集群里 槽id-->key 映射关系
+    // 本机所负责槽位 槽id-->key 映射关系
     rax *slots_to_keys;
     /* The following fields are used to take the slave state on elections. */
     // 故障切换的计划开启时间戳,毫秒级, 每轮故障切换超时后会重新计划开启时间戳
@@ -280,7 +280,7 @@ typedef struct clusterState {
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
     /* The followign fields are used by masters to take state on elections. */
-    // 上一次投票时的本机记录的集群纪元
+    // 上一次已投票的本机记录的集群纪元
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     /* Messages received and sent by type. */
