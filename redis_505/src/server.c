@@ -672,6 +672,10 @@ dictType keylistDictType = {
 
 /* Cluster nodes hash table, mapping nodes addresses 1.2.3.4:6379 to
  * clusterNode structures. */
+// 集群节点字典
+// key直接征用传入的内存,并不会重新开辟内存存储
+// value直接征用传入的内存,也不会重新开辟内存
+// 移除节点时,会自动释放key的内存
 dictType clusterNodesDictType = {
     dictSdsHash,                /* hash function */
     NULL,                       /* key dup */

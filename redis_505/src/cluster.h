@@ -89,7 +89,7 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
 // 需要向该节点发送一个MEET消息, 收到MEET消息的这一方会将发送消息方的信息加入到本节点记录的集群节点字典里
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
-// 标记主节点使用，表示该主节点有资格进行数据复制
+// 标记主节点使用，表示该主节点有资格进行数据复制:无备节点挂载时则没有资格;
 #define CLUSTER_NODE_MIGRATE_TO 256 /* Master eligible for replica migration. */
 // 当前节点为备节点，且不允许进行故障迁移
 #define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
@@ -172,7 +172,7 @@ typedef struct clusterNodeFailReport {
     // 指向是由哪个node节点发出的失败报告, 实际node节点存于clusterstate中的node字典
     // 表示发送此消息的节点
     struct clusterNode *node;  /* Node reporting the failure condition. */
-    // 失败or疑似失败报告的最新时刻
+    // 失败or疑似失败报告的最新时刻,如果此时间已过去2*nodetimeout,会被移除
     mstime_t time;             /* Time of the last report from this node. */
 } clusterNodeFailReport;
 
@@ -187,7 +187,7 @@ typedef struct clusterNode {
     int flags;      /* CLUSTER_NODE_... */
     // 节点的最新配置纪元,集群里的每一个节点的configEpoch数值均不相同
     uint64_t configEpoch; /* Last configEpoch observed for this node */
-    // 如果该节点时主节点,记录的槽位图, 位图中对应bit位为1标示由本node节点负责处理
+    // 如果该节点时主节点,槽位图, 位图中对应bit位为1标示由本node节点负责处理
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
     // 节点上负责处理的槽位个数
     int numslots;   /* Number of slots handled by this node */
@@ -224,7 +224,7 @@ typedef struct clusterNode {
     // 此字段为null时,会通过clusterCron函数来建立socket连接
     // 此字段非null时,是一个写通道连接,本机发送给当前node的数据会通过此link发送
     clusterLink *link;          /* TCP/IP link with this node */
-    // 周边哪些主节点标注当前节点为失败or疑似失败的报告链表, 只记录sender为主节点发出的通知
+    // 周边哪些 主节点 标注当前节点为失败or疑似失败的报告链表, 只记录sender为主节点发出的通知
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
@@ -232,7 +232,7 @@ typedef struct clusterNode {
 typedef struct clusterState {
     // 当前进程所在的node节点
     clusterNode *myself;  /* This node */
-    // 集群当前的配置纪元,稳定情况下集群里的所有主备节点的currentEpoch都应为同一个值
+    // 集群当前的配置纪元,稳定情况下集群里的所有主备节点的currentEpoch都应为同一个值,且是集群中所有节点纪元最大值
     uint64_t currentEpoch;
     // 集群状态
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
@@ -261,7 +261,7 @@ typedef struct clusterState {
     int failover_auth_sent;     /* True if we already asked for votes. */
     // 本节点的rank值,rank值越小越有可能升为主
     int failover_auth_rank;     /* This slave rank for current auth request. */
-    // 备节点发出迁移投票的集群纪元
+    // 备节点发出故障切换投票的集群纪元
     uint64_t failover_auth_epoch; /* Epoch of the current election. */
     int cant_failover_reason;   /* Why a slave is currently not able to
                                    failover. See the CANT_FAILOVER_* macros. */
@@ -280,7 +280,7 @@ typedef struct clusterState {
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
     /* The followign fields are used by masters to take state on elections. */
-    // 上一次已投票的本机记录的集群纪元
+    // 本机上一次已投出票时的集群纪元
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     /* Messages received and sent by type. */
