@@ -43,9 +43,13 @@
 - 此类型只会出现在压缩sds阶段,即可以压缩为SDS_TYPE_5类别;
 
 ![sds5](https://wapthen.github.io/assets/img/2020/sds5.png)
+
 ![sds8](https://wapthen.github.io/assets/img/2020/sds8.png)
+
 ![sds16](https://wapthen.github.io/assets/img/2020/sds16.png)
+
 ![sds32](https://wapthen.github.io/assets/img/2020/sds32.png)
+
 ![sds64](https://wapthen.github.io/assets/img/2020/sds64.png)
 
 ### dict字典
@@ -82,6 +86,7 @@
 - 编码方式只升不降,因为如要判断编码降级需要遍历现有成员引入性能问题;
 
 ![intset](https://wapthen.github.io/assets/img/2020/intset_unit.png)
+
 ![intset](https://wapthen.github.io/assets/img/2020/intset_upgrade.png)  
 
 ### skiplit跳表
