@@ -7,15 +7,15 @@
 * 上述技术可以参考《APUE》《UNP》书籍中的详细讲解.
 
 ## 文章
-1. [Redis用途](https://github.com/wapthen/redis-study/blob/master/blog/overview/Redis用途.md)
-2. [高性能原因](https://github.com/wapthen/redis-study/blob/master/blog/overview/高性能原因.md) 
-3. [sds字符串](https://github.com/wapthen/redis-study/blob/master/blog/overview/sds字符串.md) 
-4. [expire实现机制](https://github.com/wapthen/redis-study/blob/master/blog/overview/expire实现机制.md) 
-5. [数据淘汰机制](https://github.com/wapthen/redis-study/blob/master/blog/overview/数据淘汰机制.md) 
-6. [文件锁](https://github.com/wapthen/redis-study/blob/master/blog/overview/文件锁.md)
-7. [数据持久化机制](https://github.com/wapthen/redis-study/blob/master/blog/overview/数据持久化机制.md) 
-8. [dict字典里的安全迭代器与非安全迭代器分析](https://github.com/wapthen/redis-study/blob/master/blog/overview/dict字典里的安全迭代器与非安全迭代器分析.md) 
-9. [事务实现机制](https://github.com/wapthen/redis-study/blob/master/blog/overview/事务实现机制.md) 
+1. [Redis用途](https://wapthen.github.io/2020/03/06/Redis%E7%94%A8%E9%80%94)
+2. [高性能原因](https://wapthen.github.io/2020/03/05/Redis%E9%AB%98%E6%80%A7%E8%83%BD%E5%8E%9F%E5%9B%A0) 
+3. [sds字符串](https://wapthen.github.io/2020/03/08/Redis-sds%E5%AD%97%E7%AC%A6%E4%B8%B2) 
+4. [expire实现机制](https://wapthen.github.io/2020/03/09/Redis-expire%E5%AE%9E%E7%8E%B0%E6%9C%BA%E5%88%B6) 
+5. [数据淘汰机制](https://wapthen.github.io/2020/03/13/Redis%E6%95%B0%E6%8D%AE%E6%B7%98%E6%B1%B0%E6%9C%BA%E5%88%B6) 
+6. [文件锁](https://wapthen.github.io/2020/03/12/Redis%E6%96%87%E4%BB%B6%E9%94%81)
+7. [数据持久化机制](https://wapthen.github.io/2020/03/11/Redis%E6%95%B0%E6%8D%AE%E6%8C%81%E4%B9%85%E5%8C%96%E6%9C%BA%E5%88%B6) 
+8. [dict字典里的迭代器分析](https://wapthen.github.io/2020/03/07/Redis%E5%AD%97%E5%85%B8%E8%BF%AD%E4%BB%A3%E5%99%A8%E5%88%86%E6%9E%90) 
+9. [事务实现机制](https://wapthen.github.io/2020/03/10/Redis%E4%BA%8B%E5%8A%A1%E5%AE%9E%E7%8E%B0%E6%9C%BA%E5%88%B6) 
 
 ---
 
