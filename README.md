@@ -8,15 +8,15 @@
 
 ## 文章
 
-1. [Redis用途](https://wapthen.github.io/2020/03/06/Redis%E7%94%A8%E9%80%94)
-2. [高性能原因](https://wapthen.github.io/2020/03/05/Redis%E9%AB%98%E6%80%A7%E8%83%BD%E5%8E%9F%E5%9B%A0) 
-3. [sds字符串](https://wapthen.github.io/2020/03/08/Redis-sds%E5%AD%97%E7%AC%A6%E4%B8%B2) 
-4. [expire实现机制](https://wapthen.github.io/2020/03/09/Redis-expire%E5%AE%9E%E7%8E%B0%E6%9C%BA%E5%88%B6) 
-5. [数据淘汰机制](https://wapthen.github.io/2020/03/13/Redis%E6%95%B0%E6%8D%AE%E6%B7%98%E6%B1%B0%E6%9C%BA%E5%88%B6) 
-6. [文件锁](https://wapthen.github.io/2020/03/12/Redis%E6%96%87%E4%BB%B6%E9%94%81)
-7. [数据持久化机制](https://wapthen.github.io/2020/03/11/Redis%E6%95%B0%E6%8D%AE%E6%8C%81%E4%B9%85%E5%8C%96%E6%9C%BA%E5%88%B6) 
-8. [dict字典里的迭代器分析](https://wapthen.github.io/2020/03/07/Redis%E5%AD%97%E5%85%B8%E8%BF%AD%E4%BB%A3%E5%99%A8%E5%88%86%E6%9E%90) 
-9. [事务实现机制](https://wapthen.github.io/2020/03/10/Redis%E4%BA%8B%E5%8A%A1%E5%AE%9E%E7%8E%B0%E6%9C%BA%E5%88%B6) 
+1. [Redis用途](https://wapthen.github.io/2020/03/05/2020/2020-03-05-Redis%E7%94%A8%E9%80%94/)
+2. [高性能原因](https://wapthen.github.io/2020/03/13/2020/2020-03-13-Redis%E9%AB%98%E6%80%A7%E8%83%BD%E5%8E%9F%E5%9B%A0%E5%88%86%E6%9E%90/) 
+3. [sds字符串](https://wapthen.github.io/2020/03/06/2020/2020-03-06-Redis-SDS%E5%AD%97%E7%AC%A6%E4%B8%B2/) 
+4. [expire实现机制](https://wapthen.github.io/2020/03/07/2020/2020-03-07-Redis-expire%E5%AE%9E%E7%8E%B0%E6%9C%BA%E5%88%B6/) 
+5. [数据淘汰机制](https://wapthen.github.io/2020/03/11/2020/2020-03-11-Redis%E6%95%B0%E6%8D%AE%E6%B7%98%E6%B1%B0%E6%9C%BA%E5%88%B6/) 
+6. [文件锁](https://wapthen.github.io/2020/03/08/2020/2020-03-08-Redis%E6%96%87%E4%BB%B6%E9%94%81/)
+7. [数据持久化机制](https://wapthen.github.io/2020/03/12/2020/2020-03-12-Redis%E6%95%B0%E6%8D%AE%E6%8C%81%E4%B9%85%E5%8C%96%E6%9C%BA%E5%88%B6/) 
+8. [dict字典里的迭代器分析](https://wapthen.github.io/2020/03/09/2020/2020-03-09-Redis%E5%AD%97%E5%85%B8%E8%BF%AD%E4%BB%A3%E5%99%A8%E5%88%86%E6%9E%90/) 
+9. [事务实现机制](https://wapthen.github.io/2020/03/10/2020/2020-03-10-Redis%E4%BA%8B%E5%8A%A1%E5%AE%9E%E7%8E%B0%E6%9C%BA%E5%88%B6/) 
 
 ---
 
@@ -24,7 +24,7 @@
 
 ### adlist双向链表
 
-![adlist](https://wapthen.github.io/assets/img/2020/adlist.png)  
+![adlist](https://wapthen.github.io/images/2020/adlist.png)  
 
 ### sds字符串
 
@@ -40,15 +40,15 @@
 - 此类型不会出现在创建 或者 扩容 sds阶段, 这两个阶段所用的最短类别为SDS_TYPE_8;
 - 此类型只会出现在压缩sds阶段,即可以压缩为SDS_TYPE_5类别;
 
-![sds5](https://wapthen.github.io/assets/img/2020/sds5.png)
+![sds5](https://wapthen.github.io/images/2020/sds5.png)
 
-![sds8](https://wapthen.github.io/assets/img/2020/sds8.png)
+![sds8](https://wapthen.github.io/images/2020/sds8.png)
 
-![sds16](https://wapthen.github.io/assets/img/2020/sds16.png)
+![sds16](https://wapthen.github.io/images/2020/sds16.png)
 
-![sds32](https://wapthen.github.io/assets/img/2020/sds32.png)
+![sds32](https://wapthen.github.io/images/2020/sds32.png)
 
-![sds64](https://wapthen.github.io/assets/img/2020/sds64.png)
+![sds64](https://wapthen.github.io/images/2020/sds64.png)
 
 ### dict字典
 
@@ -66,7 +66,7 @@
     - 基于上述情况, 如果在子进程的数据持久化时使用安全迭代器,必然会导致dict里的计数器字段改动,进行导致不必要的内存页cow.
     - 所以对于只读式的遍历场景,可以使用非安全迭代器,以避免不必要的内存写时拷贝.
    
-![dict](https://wapthen.github.io/assets/img/2020/)  
+![dict](https://wapthen.github.io/images/2020/)  
 
 ### intset整型集合
 
@@ -79,24 +79,24 @@
 - 删除数据时不会进行编码方式调整,但是会重新realloc内存((length+1) * encoding + sizeof(struct intset);
 - 编码方式只升不降,因为如要判断编码降级需要遍历现有成员引入性能问题;
 
-![intset](https://wapthen.github.io/assets/img/2020/intset_unit.png)
+![intset](https://wapthen.github.io/images/2020/intset_unit.png)
 
-![intset](https://wapthen.github.io/assets/img/2020/intset_upgrade.png)  
+![intset](https://wapthen.github.io/images/2020/intset_upgrade.png)  
 
 ### skiplit跳表
 
 - 本node 与 forward-node之间横跨的节点数目,数目的计算区间(本node, forward-node]前开后闭
 - span字段主要是支持sortedset类型的按照rank获取数据功能
 
-![skiplist_node](https://wapthen.github.io/assets/img/2020/skiplist_unit.png)
+![skiplist_node](https://wapthen.github.io/images/2020/skiplist_unit.png)
 
-![skiplist](https://wapthen.github.io/assets/img/2020/skiplist_all.png)  
+![skiplist](https://wapthen.github.io/images/2020/skiplist_all.png)  
 
 ### ziplit压缩链表
 
 - 本结构体里记录的数据除非特别说明,则默认为little-endian编码方式
 
-![ziplist](https://wapthen.github.io/assets/img/2020/ziplist.png)
+![ziplist](https://wapthen.github.io/images/2020/ziplist.png)
 
 ### zipmap压缩map
 
@@ -104,4 +104,4 @@
 - zmlen只有一个byte长度,可以表示[0, 0XFD], 但如果数值为0XFE, 那么就需要遍历整个zipmap来计算出总长度;
 - \<free\> is always an unsigned 8 bit number, because if after an update operation there are more than a few free bytes, the zipmap will be reallocated to make sure it is as small as possible.
 
-![zipmap](https://wapthen.github.io/assets/img/2020/zipmap.png)
+![zipmap](https://wapthen.github.io/images/2020/zipmap.png)
