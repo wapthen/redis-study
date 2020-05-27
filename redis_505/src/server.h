@@ -1111,7 +1111,7 @@ struct redisServer {
     int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors */
     int ipfd_count;             /* Used slots in ipfd[] */
     int sofd;                   /* Unix socket file descriptor */
-    // cluster集群通信所用的tcp 套接字数组
+    // cluster集群通信所用的tcp 监听套接字数组
     int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
     // cluster集群通信所用的tcp 套接字总个数
     int cfd_count;              /* Used slots in cfd[] */

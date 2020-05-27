@@ -65,8 +65,10 @@ typedef struct clusterLink {
     // tcp 接收缓冲区,在本link生命周期内,空间只会扩张不收缩             
     sds rcvbuf;                 /* Packet reception buffer */
     // 指向本link代表的对端node节点,实际的node节点存在与clusterState里的node字典中
-    // 注意此字段用于区分是主动外呼 or 被动监听呼起
-    // 为null,表示此link是当前tcp是被动监听呼起，即由该node发起到本myself节点的TCP连接.
+    // 注意此字段用于区分是主动外呼 or 被动响应
+    // 主动外呼：在通信中，本机主动外呼发起通信，并接收对方的响应。
+    // 被动响应：在通信中，本机不主动发起通信，而只是应答外部节点。
+    // 为null,表示此link是当前tcp是被动响应，即由该node发起到本myself节点的TCP连接.
     // 不为null,表示此link时当前tcp主动外呼, 即由myself节点主动发起到该node的TCP连接.
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
 } clusterLink;
@@ -169,8 +171,8 @@ typedef struct clusterLink {
 /* This structure represent elements of node->fail_reports. */
 // 失败报告信息结构体
 typedef struct clusterNodeFailReport {
-    // 指向是由哪个node节点发出的失败报告, 实际node节点存于clusterstate中的node字典
-    // 表示发送此消息的节点
+    // 指向是由哪个主node节点发出的失败报告, 实际node节点存于clusterstate中的node字典
+    // 表示发送此消息的主节点
     struct clusterNode *node;  /* Node reporting the failure condition. */
     // 失败or疑似失败报告的最新时刻,如果此时间已过去2*nodetimeout,会被移除
     mstime_t time;             /* Time of the last report from this node. */
@@ -236,7 +238,7 @@ typedef struct clusterState {
     uint64_t currentEpoch;
     // 集群状态
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
-    // 集群里的至少负责1个槽位以上的主节点个数,该值很关键,此值决定故障切换票数是否胜出
+    // 集群里的至少负责1个槽位以上的主节点(不考虑状态)个数,该值很关键,此值决定故障切换票数是否胜出
     int size;             /* Num of master nodes with at least one slot */
     // 集群里的节点字典, 记录了 nodeid-->node的映射关系
     dict *nodes;          /* Hash table of name -> clusterNode structures */
@@ -412,6 +414,7 @@ typedef struct {
 /* Message flags better specify the packet content or are used to
  * provide some information about the node state. */
 #define CLUSTERMSG_FLAG0_PAUSED (1<<0) /* Master paused for manual failover. */
+// 强制接收方开启投票过程,即使接收方认为申请投票所在子集群的主节点状态正常
 #define CLUSTERMSG_FLAG0_FORCEACK (1<<1) /* Give ACK to AUTH_REQUEST even if
                                             master is up. */
 
