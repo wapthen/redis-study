@@ -20,7 +20,7 @@
 
 ---
 
-关于Redis的具体介绍已经全部移植技术博客里![blog](https://wapthen.github.io)
+关于Redis的具体介绍已经全部移植技术博客里[blog](https://wapthen.github.io)
 
 
 
