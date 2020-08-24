@@ -65,6 +65,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 }
 
 /**
+ * 入参 setsize 表示最新数组容量
  * 调整预分配的供保存已触发事件的epoll_event数组容量
  * 内部采用realloc机制
  */
@@ -98,6 +99,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
             EPOLL_CTL_ADD : EPOLL_CTL_MOD;
 
     ee.events = 0;
+    // 结合已有的标记
     mask |= eventLoop->events[fd].mask; /* Merge old events */
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
@@ -116,6 +118,7 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
     struct epoll_event ee = {0}; /* avoid valgrind warning */
     int mask = eventLoop->events[fd].mask & (~delmask);
 
+    // 重新设置最新的关注事件
     ee.events = 0;
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;

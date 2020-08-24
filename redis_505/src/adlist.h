@@ -59,7 +59,7 @@ typedef struct list {
     listNode *tail;//指向链表的最后一个节点
     void *(*dup)(void *ptr);//保存用于复制value使用的函数指针，适用于需要深度拷贝的场景
     void (*free)(void *ptr);//保存用于释放value使用的函数指针
-    int (*match)(void *ptr, void *key);//判断value数据释放相同的函数指针，如为NULL，则直接比较value指针的大小是否相同
+    int (*match)(void *ptr, void *key);//判断value数据是否相同的函数指针，如为NULL，则直接比较value指针数值是否相同
     unsigned long len;//链表元素个数
 } list;
 

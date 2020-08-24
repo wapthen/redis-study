@@ -157,7 +157,7 @@ list *listAddNodeTail(list *list, void *value)
  * 将新数据存入现有链表指定节点的之前or之后
  * 入参after为0表示插入指定节点之前，非0表示插入指定节点之后
  * 注意：此指定节点需要由调用方确保在此链表中，入参list也是已正常创建完毕的list
- * 内部也并不会调用dup函数来复制数据
+ * 内部也并不会调用dup函数来复制value指向的数据
  */
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
@@ -272,7 +272,7 @@ void listRewindTail(list *list, listIter *li) {
  * */
 /**
  * 返回当前节点元素，并移动迭代器指向下一个内部元素。
- * 此函数对于删除当前节点是安全的，但是在调用此函数时不能删除非当前节点元素
+ * 此函数对于删除当前节点是安全的，但是在调用此函数时不能删除 非当前 节点元素
  */
 listNode *listNext(listIter *iter)
 {
@@ -318,6 +318,7 @@ list *listDup(list *orig)
         if (copy->dup) {
             value = copy->dup(node->value);
             if (value == NULL) {
+                // 如果复制失败，则删除新生成的链表
                 listRelease(copy);
                 return NULL;
             }

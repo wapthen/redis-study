@@ -129,7 +129,7 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
 
     /* Make sure that if we created new slots, they are initialized with
      * an AE_NONE mask. */
-    // 对新开辟的空间进行初始化赋值, 此处可以使用maxfd+1作为起始下标
+    // 如果是扩张，那么需要对新开辟的空间进行初始化赋值, 此处可以使用maxfd+1作为起始下标
     for (i = eventLoop->maxfd+1; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
     return AE_OK;
@@ -165,6 +165,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
+    // 记录完整的标记
     fe->mask |= mask;
     // 针对入参的mask类别,将回调函数添加到合适的注册器内部
     if (mask & AE_READABLE) fe->rfileProc = proc;
@@ -194,6 +195,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 
     // 先操作底层多路复用器，再记录并更新eventLoop中的关注事件
     aeApiDelEvent(eventLoop, fd, mask);
+    // 记录完整的标记
     fe->mask &= ~mask;
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
         // 对于当前文件句柄是全局最大的文件句柄而且已无任何关注事件时，则需更新全局最大的文件句柄数值
@@ -208,8 +210,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 }
 
 /**
- *
- * 获取指定文件句柄对应的关注事件，如越界则返回0
+ * 获取指定文件句柄对应的关注标记，如当前文件句柄已经越界则返回0
  */
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     if (fd >= eventLoop->setsize) return 0;
@@ -231,7 +232,7 @@ static void aeGetTime(long *seconds, long *milliseconds)
 }
 
 /**
- * 基于当前时间计算milliseconds毫秒后的具体时间, 数值存储到入参的sec ms中
+ * 基于当前时间叠加入参milliseconds毫秒后的具体时间, 数值存储到入参的sec ms中
  */
 static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
     long cur_sec, cur_ms, when_sec, when_ms;
@@ -358,6 +359,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
     eventLoop->lastTime = now;
 
     te = eventLoop->timeEventHead;
+    // 时间任务链表里当前最大有效id
     maxId = eventLoop->timeEventNextId-1;
     while(te) {
         long now_sec, now_ms;
@@ -396,7 +398,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
         {
-            //此处表示是否需要再次执行此定时任务,-1表示无需再次执行,其他值表示再次执行的时间间隔, 单位毫秒
+            //此字段表示是否需要再次执行此定时任务,-1表示无需再次执行,其他值表示再次执行的时间间隔, 单位毫秒
             int retval;
 
             id = te->id;
@@ -447,7 +449,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
     // 以此差值作为后续阻塞等待文件句柄事件的最大等待时间。
     // 如果flags是AE_DONT_WAIT，则不计算时间，直接将等待时间设为0，即不阻塞等待；
     // 如果flags里无AE_TIME_EVENTS，表示本函数不处理时间任务，则也不计算时间，直接将等待时间设置为NULL，即一致阻塞到有可用文件句柄为止
-    if (eventLoop->maxfd != -1 ||
+    if (eventLoop->maxfd != -1 || // 当前框架里至少有一个fd：服务端的监听端口对应的套接字，所以次maxfd一定不为-1，如为-1 表示当前进程启动未完成
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
         aeTimeEvent *shortest = NULL;
@@ -471,6 +473,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 tvp->tv_sec = ms/1000;
                 tvp->tv_usec = (ms % 1000)*1000;
             } else {
+                // 无阻塞
                 tvp->tv_sec = 0;
                 tvp->tv_usec = 0;
             }
@@ -522,7 +525,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * 通常情况下，对于同一个文件句柄，在处于同时可读可写状态时，会先处理读事件再处理写事件。
              * 这样会保证我们在尽可能快的将读事件得到的各种命令执行后，再处理本轮写事件时将结果一并下发返回给客户。
              * 但是上述机制，又会导致 在处理写命令时，未及时将命令刷入本地磁盘就会提前将应答回复给客户的情况。
-             * 所以引入了AE_BARRIER标记，对于同一个文件句柄已执行过"读回调"函数的情况下，本轮不执行"写回调"函数。
+             * 所以引入了AE_BARRIER标记
+             * 对于有AE_BARRIER标记，会先执行写操作，将缓冲区里的之前的执行结果发送给客户，再执行读操作，读操作可能会执行命令并向缓冲区内追加待发响应数据。
+             * 如无AE_BARRIER标记，则先执行读操作，再执行写操作。
              */
             int invert = fe->mask & AE_BARRIER;
 
