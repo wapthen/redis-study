@@ -188,6 +188,7 @@ int anetSetSendBuffer(char *err, int fd, int buffsize)
     return ANET_OK;
 }
 
+// 开启tcp keepalive机制，但是侦测间隔使用内核默认数值
 int anetTcpKeepAlive(char *err, int fd)
 {
     int yes = 1;
@@ -407,7 +408,7 @@ int anetTcpNonBlockConnect(char *err, char *addr, int port)
  * 非阻塞式connect会立即返回，内存协议栈底层会继续进行TCP 三次握手过程，并且errno为EINPROGRESS
  * 如果最终3次握手成功后，套接字会提示可写事件
  * 如果最终3次握手失败，套接字会提示可读可写事件
- */ 
+ */
 int anetTcpNonBlockBindConnect(char *err, char *addr, int port,
                                char *source_addr)
 {
@@ -547,7 +548,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
        NULL, then the returned socket addresses will be suitable for
        bind(2)ing a socket that will accept(2) connections.  The returned
        socket address will contain the "wildcard address" (INADDR_ANY for
-       IPv4 addresses, IN6ADDR_ANY_INIT for IPv6 address). 
+       IPv4 addresses, IN6ADDR_ANY_INIT for IPv6 address).
     */
     if ((rv = getaddrinfo(bindaddr,_port,&hints,&servinfo)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
