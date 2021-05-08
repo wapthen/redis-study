@@ -228,7 +228,7 @@ int anetSendTimeout(char *err, int fd, long long ms) {
  * that are actually already IPv4 or IPv6 addresses. This turns the function
  * into a validating / normalizing function. */
 /**
- * 将本机地址转为名称，可以处理ipv4，ipv6
+ * 将本机名称or IP地址规整为字符串型IP地址，可以处理ipv4，ipv6
  * 如果flags设置有ANET_IP_ONLY则仅仅解析数字型地址
  */
 int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
@@ -306,7 +306,7 @@ static int anetCreateSocket(char *err, int domain) {
 
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
-// 在建立跟对方的tcp连接时,优先执行出口指定本地ip绑定,如果本地绑定失败,则由系统内核决定出口源
+// 在建立跟对方的tcp连接时,优先执行以指定的本地ip作为源地址,如果失败,则由系统内核决定源地址
 #define ANET_CONNECT_BE_BINDING 2 /* Best effort binding. */
 /**
  * 构造socket句柄并完成connect对端地址
@@ -371,6 +371,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
 
         /* If we ended an iteration of the for loop without errors, we
          * have a connected socket. Let's return to the caller. */
+        // 只构造成功一个套接字便可返回
         goto end;
     }
     if (p == NULL)
@@ -519,6 +520,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
 
 static int anetV6Only(char *err, int s) {
     int yes = 1;
+    // 仅用于ipv6通信通道
     if (setsockopt(s,IPPROTO_IPV6,IPV6_V6ONLY,&yes,sizeof(yes)) == -1) {
         anetSetError(err, "setsockopt: %s", strerror(errno));
         close(s);

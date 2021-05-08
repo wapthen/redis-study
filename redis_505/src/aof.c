@@ -288,7 +288,7 @@ static void killAppendOnlyChild(void) {
 /* Called when the user switches from "appendonly yes" to "appendonly no"
  * at runtime using the CONFIG command. */
 /**
- * 此函数在执行用户调整aof配置由yes转为no时 or 收到主节点传输来的使用
+ * 此函数在执行用户调整aof配置由yes转为no时 or 收到主节点发送来的复制数据时使用
  * 内部先强行执行一次aof落盘动作
  * 主要是将主进程里内存中缓存的aof-buf命令写入文件并同步落盘，之后将aof功能关闭，并安全的杀掉正在执行中的rewrite aof子进程
  */
@@ -487,7 +487,7 @@ void flushAppendOnlyFile(int force) {
      * or alike */
 
     latencyStartMonitor(latency);
-    nwritten = aofWrite(server.aof_fd,,sdslen(server.aof_buf));
+    nwritten = aofWrite(server.aof_fd, server.aof_buf, sdslen(server.aof_buf));
     latencyEndMonitor(latency);
     /* We want to capture different events for delayed writes:
      * when the delay happens with a pending fsync, or with a saving child
@@ -504,7 +504,7 @@ void flushAppendOnlyFile(int force) {
     latencyAddSampleIfNeeded("aof-write",latency);
 
     /* We performed the write so reset the postponed flush sentinel to zero. */
-    // 表示已经完成落盘写文件,需将延迟写标记置为0
+    // 表示已经完成写文件,需将延迟写标记置为0
     server.aof_flush_postponed_start = 0;
 
     // 没有完全将aof_buf中累积的数据写入磁盘文件, 尝试将本次写入的所有数据截断回滚,如果回滚失败,则已经部分落盘的数据就算成功,执行后续的刷盘策略
@@ -829,7 +829,10 @@ int loadAppendOnlyFile(char *filename) {
     struct redis_stat sb;
     int old_aof_state = server.aof_state;
     long loops = 0;
+    // 加载aof文件时，对于事务命令如果发现文件最后缺少事务执行命令，那么需要将该事务从头到尾均文件中移除
+    // 记录文件中已正常加载的偏移量
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
+    // 记录文件中事务开始的偏移量
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
 
     if (fp == NULL) {
@@ -863,6 +866,7 @@ int loadAppendOnlyFile(char *filename) {
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
     } else {
         /* RDB preamble. Pass loading the RDB functions. */
+        // 混合持久化格式的文件，开始为RDB文件格式，之后为AOF格式，那么开头5个字节必为RDB文件的固定开头REDIS字母标记
         rio rdb;
 
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
@@ -922,6 +926,7 @@ int loadAppendOnlyFile(char *filename) {
                 goto readerr;
             }
             argv[j] = createObject(OBJ_STRING,argsds);
+            // 读取当前尾部的\r\n字符
             if (fread(buf,2,1,fp) == 0) {
                 fakeClient->argc = j+1; /* Free up to j. */
                 freeFakeClientArgv(fakeClient);
@@ -1033,6 +1038,7 @@ fmterr: /* Format error. */
 
 /* Delegate writing an object to writing a bulk string or bulk long long.
  * This is not placed in rio.c since that adds the server.h dependency. */
+// 将obj数据写入文件中
 int rioWriteBulkObject(rio *r, robj *obj) {
     /* Avoid using getDecodedObject to help copy-on-write (we are often
      * in a child process when this function is called). */
@@ -2003,6 +2009,9 @@ cleanup:
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
     /* Schedule a new rewrite if we are waiting for it to switch the AOF ON. */
+    // 走到这里，一般而言有两种情况：1，rewriteaof正常；2，rewriteaof异常
+    // 对于情况1，server.aof_state必是AOF_ON
+    // 对于情况2，如果server.aof_state为AOF_WAIT_REWRITE表示redis开启aof之后还未完整生成过aof文件，那么这里再次标记一下，尽快开启新一轮的aof rewrite过程
     if (server.aof_state == AOF_WAIT_REWRITE)
         server.aof_rewrite_scheduled = 1;
 }

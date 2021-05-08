@@ -265,7 +265,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te->timeProc = proc;
     te->finalizerProc = finalizerProc;
     te->clientData = clientData;
-    //插入链表时，需先操作新节点，再改老节点指针
+    //插入链表头部时，需先操作新节点，再改老节点指针
     te->prev = NULL;
     te->next = eventLoop->timeEventHead;
     if (te->next)
@@ -447,7 +447,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
      * to fire. */
     // 如下逻辑是依据时间任务链表里的各项待触发时刻，取出距离当前时刻最近的待触发时刻，
     // 以此差值作为后续阻塞等待文件句柄事件的最大等待时间。
-    // 如果flags是AE_DONT_WAIT，则不计算时间，直接将等待时间设为0，即不阻塞等待；
+    // 如果flags是AE_DONT_WAIT，则不计算时间，直接将等待时间设为0，即不等待；
     // 如果flags里无AE_TIME_EVENTS，表示本函数不处理时间任务，则也不计算时间，直接将等待时间设置为NULL，即一致阻塞到有可用文件句柄为止
     if (eventLoop->maxfd != -1 || // 当前框架里至少有一个fd：服务端的监听端口对应的套接字，所以次maxfd一定不为-1，如为-1 表示当前进程启动未完成
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {

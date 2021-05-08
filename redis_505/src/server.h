@@ -224,7 +224,9 @@ typedef long long mstime_t; /* millisecond time type. */
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
 #define AOF_ON 1              /* AOF is on */
-// aof设置已经开启等待第一次的rewrite
+// aof设置调整为开启后，需要尽快生成一份aof文件。
+// 对于内存已有数据但是磁盘还未有aof文件场景，基于内存里的数据全量rewrite到aof文件中，这个第一次rewrite过程非常关键，需要特殊标记
+// 因为第一次生成全量aof文件如果失败，需要尽快再次开启rewrite直至构建完毕初始版本的aof文件
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
 /* Client flags */
@@ -1254,7 +1256,7 @@ struct redisServer {
     // aof时,当前使用的db库索引号
     int aof_selected_db; /* Currently selected DB in AOF */
     // aof模式下最近一次延迟写标记字段,为0表示之前没有延迟写
-    // 对于linux里的write函数可能会被后台正在执行中的fsync阻塞,所以当刷盘策略为每秒时,对于后台有fsync执行时,我们会延迟本次持久化
+    // 对于linux里的write函数可能会被后台正在执行中的fsync阻塞,所以当刷盘策略为每秒时,对于后台有fsync执行时,我们会延迟本次写数据
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
     // 最新执行刷盘aof的时刻
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
